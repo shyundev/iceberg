@@ -22,10 +22,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
+import java.lang.ref.WeakReference;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import org.apache.iceberg.util.ThreadPools;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -87,5 +90,36 @@ class TestAuthSessionCache {
     Mockito.verify(session1).close();
 
     cache.close();
+  }
+
+  @Test
+  void closedCacheDoesNotRetainInheritableThreadLocals() {
+    // load ThreadPools first so the shutdown hooks of its static pools do not capture the
+    // thread local
+    ThreadPools.getWorkerPool();
+
+    WeakReference<Object> value = createAndCloseCacheWithInheritableThreadLocal();
+
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .pollInSameThread()
+        .untilAsserted(
+            () -> {
+              System.gc();
+              assertThat(value.get()).isNull();
+            });
+  }
+
+  private static WeakReference<Object> createAndCloseCacheWithInheritableThreadLocal() {
+    InheritableThreadLocal<Object> threadLocal = new InheritableThreadLocal<>();
+    Object value = new Object();
+    threadLocal.set(value);
+    try {
+      new AuthSessionCache("test", Duration.ofHours(1)).close();
+    } finally {
+      threadLocal.remove();
+    }
+
+    return new WeakReference<>(value);
   }
 }
