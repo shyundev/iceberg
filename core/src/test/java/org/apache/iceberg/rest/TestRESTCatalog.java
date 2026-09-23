@@ -39,6 +39,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.ref.WeakReference;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
@@ -94,6 +95,10 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.metrics.CommitReport;
+import org.apache.iceberg.metrics.ImmutableScanReport;
+import org.apache.iceberg.metrics.ScanMetrics;
+import org.apache.iceberg.metrics.ScanMetricsResult;
+import org.apache.iceberg.metrics.ScanReport;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -3815,6 +3820,45 @@ public class TestRESTCatalog extends CatalogTests<RESTCatalog> {
             any(),
             any(),
             any());
+  }
+
+  @Test
+  public void metricsReportingDoesNotRetainInheritableThreadLocals() {
+    RESTCatalog catalog = catalog(new RESTCatalogAdapter(backendCatalog));
+    catalog.createNamespace(TABLE.namespace());
+    BaseTable table = (BaseTable) catalog.createTable(TABLE, SCHEMA);
+
+    WeakReference<Object> value = reportWithInheritableThreadLocal(table);
+
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .pollInSameThread()
+        .untilAsserted(
+            () -> {
+              System.gc();
+              assertThat(value.get()).isNull();
+            });
+  }
+
+  private static WeakReference<Object> reportWithInheritableThreadLocal(BaseTable table) {
+    ScanReport report =
+        ImmutableScanReport.builder()
+            .tableName(table.name())
+            .schemaId(table.schema().schemaId())
+            .snapshotId(1L)
+            .filter(Expressions.alwaysTrue())
+            .scanMetrics(ScanMetricsResult.fromScanMetrics(ScanMetrics.noop()))
+            .build();
+    InheritableThreadLocal<Object> threadLocal = new InheritableThreadLocal<>();
+    Object value = new Object();
+    threadLocal.set(value);
+    try {
+      table.reporter().report(report);
+    } finally {
+      threadLocal.remove();
+    }
+
+    return new WeakReference<>(value);
   }
 
   @Test

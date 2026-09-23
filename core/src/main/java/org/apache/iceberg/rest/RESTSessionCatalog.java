@@ -26,6 +26,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -279,7 +281,11 @@ public class RESTSessionCatalog extends BaseViewSessionCatalog
             RESTCatalogProperties.METRICS_REPORTING_ENABLED_DEFAULT);
 
     if (reportingViaRestEnabled) {
-      this.metricsExecutor = ThreadPools.newFixedThreadPool("rest-metrics-reporter", 1);
+      ThreadPoolExecutor executor =
+          (ThreadPoolExecutor) ThreadPools.newFixedThreadPool("rest-metrics-reporter", 1);
+      executor.setKeepAliveTime(1, TimeUnit.SECONDS);
+      executor.allowCoreThreadTimeOut(true);
+      this.metricsExecutor = executor;
       this.closeables.addCloseable(metricsExecutor::shutdown);
     }
 
