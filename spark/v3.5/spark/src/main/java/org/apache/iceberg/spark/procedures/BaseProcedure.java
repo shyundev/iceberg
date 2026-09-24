@@ -20,19 +20,16 @@ package org.apache.iceberg.spark.procedures;
 
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Function;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
-import org.apache.iceberg.relocated.com.google.common.util.concurrent.MoreExecutors;
-import org.apache.iceberg.relocated.com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.iceberg.spark.Spark3Util;
 import org.apache.iceberg.spark.Spark3Util.CatalogAndIdentifier;
 import org.apache.iceberg.spark.actions.SparkActions;
 import org.apache.iceberg.spark.procedures.SparkProcedures.ProcedureBuilder;
 import org.apache.iceberg.spark.source.SparkTable;
+import org.apache.iceberg.util.ThreadPools;
 import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -234,15 +231,7 @@ abstract class BaseProcedure implements Procedure {
         executorService == null, "Cannot create a new executor service, one already exists.");
     Preconditions.checkArgument(
         nameFormat != null, "Cannot create a service with null nameFormat arg");
-    this.executorService =
-        MoreExecutors.getExitingExecutorService(
-            (ThreadPoolExecutor)
-                Executors.newFixedThreadPool(
-                    threadPoolSize,
-                    new ThreadFactoryBuilder()
-                        .setDaemon(true)
-                        .setNameFormat(nameFormat + "-%d")
-                        .build()));
+    this.executorService = ThreadPools.newFixedThreadPool(nameFormat, threadPoolSize);
 
     return executorService;
   }

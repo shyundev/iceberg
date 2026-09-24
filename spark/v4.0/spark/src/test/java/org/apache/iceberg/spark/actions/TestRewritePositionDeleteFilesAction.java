@@ -62,6 +62,7 @@ import org.apache.iceberg.actions.RewritePositionDeleteFiles.FileGroupRewriteRes
 import org.apache.iceberg.actions.RewritePositionDeleteFiles.Result;
 import org.apache.iceberg.actions.SizeBasedFileRewritePlanner;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.common.DynFields;
 import org.apache.iceberg.data.FileHelpers;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.deletes.DeleteGranularity;
@@ -241,6 +242,34 @@ public class TestRewritePositionDeleteFilesAction extends CatalogTestBase {
     List<Object[]> actualDeletes = deleteRecords(table);
     assertEquals("Rows must match", expectedRecords, actualRecords);
     assertEquals("Position deletes must match", expectedDeletes, actualDeletes);
+  }
+
+  @TestTemplate
+  void rewriteDoesNotRegisterShutdownHook() throws Exception {
+    Table table = createTableUnpartitioned(2, SCALE);
+    writePosDeletesForFiles(table, 2, DELETES_SCALE, TestHelpers.dataFiles(table));
+    // the first rewrite initializes the shared pools it uses, which register their own hooks
+    SparkActions.get(spark)
+        .rewritePositionDeletes(table)
+        .option(SizeBasedFileRewritePlanner.REWRITE_ALL, "true")
+        .execute();
+    assertThat(deleteFiles(table)).hasSize(1);
+
+    int hooks = shutdownHooks().size();
+    Result result =
+        SparkActions.get(spark)
+            .rewritePositionDeletes(table)
+            .option(SizeBasedFileRewritePlanner.REWRITE_ALL, "true")
+            .execute();
+    assertThat(result.rewrittenDeleteFilesCount()).isOne();
+    assertThat(shutdownHooks()).hasSize(hooks);
+  }
+
+  private static Map<Thread, Thread> shutdownHooks() {
+    return DynFields.builder()
+        .hiddenImpl("java.lang.ApplicationShutdownHooks", "hooks")
+        .<Map<Thread, Thread>>buildStatic()
+        .get();
   }
 
   @TestTemplate

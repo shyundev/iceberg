@@ -84,6 +84,7 @@ import org.apache.iceberg.actions.RewriteDataFiles.Result;
 import org.apache.iceberg.actions.RewriteDataFilesCommitManager;
 import org.apache.iceberg.actions.RewriteFileGroup;
 import org.apache.iceberg.actions.SizeBasedFileRewritePlanner;
+import org.apache.iceberg.common.DynFields;
 import org.apache.iceberg.data.GenericFileWriterFactory;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
@@ -217,6 +218,27 @@ public class TestRewriteDataFilesAction extends TestBase {
     List<Object[]> actual = currentData();
 
     assertEquals("Rows must match", expectedRecords, actual);
+  }
+
+  @TestTemplate
+  void rewriteDoesNotRegisterShutdownHook() {
+    Table table = createTable(4);
+    // the first rewrite initializes the shared pools it uses, which register their own hooks
+    basicRewrite(table).execute();
+    shouldHaveFiles(table, 1);
+
+    int hooks = shutdownHooks().size();
+    Result result =
+        basicRewrite(table).option(SizeBasedFileRewritePlanner.REWRITE_ALL, "true").execute();
+    assertThat(result.rewrittenDataFilesCount()).isOne();
+    assertThat(shutdownHooks()).hasSize(hooks);
+  }
+
+  private static Map<Thread, Thread> shutdownHooks() {
+    return DynFields.builder()
+        .hiddenImpl("java.lang.ApplicationShutdownHooks", "hooks")
+        .<Map<Thread, Thread>>buildStatic()
+        .get();
   }
 
   @TestTemplate
