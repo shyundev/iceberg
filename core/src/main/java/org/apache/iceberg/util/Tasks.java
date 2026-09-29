@@ -19,7 +19,6 @@
 package org.apache.iceberg.util;
 
 import java.io.InterruptedIOException;
-import java.net.SocketTimeoutException;
 import java.nio.channels.ClosedByInterruptException;
 import java.util.Arrays;
 import java.util.Collection;
@@ -483,12 +482,12 @@ public class Tasks {
   private static boolean causedByInterruption(Throwable throwable) {
     Throwable current = throwable;
     while (current != null) {
-      // SocketTimeoutException extends InterruptedIOException but signals a socket timeout rather
-      // than Thread.interrupt(), so it remains retryable
+      // subclasses of InterruptedIOException, such as SocketTimeoutException and HTTP client
+      // connection timeouts, signal a timeout rather than Thread.interrupt(), so they remain
+      // retryable
       if (current instanceof InterruptedException
           || current instanceof ClosedByInterruptException
-          || (current instanceof InterruptedIOException
-              && !(current instanceof SocketTimeoutException))) {
+          || current.getClass() == InterruptedIOException.class) {
         return true;
       }
 

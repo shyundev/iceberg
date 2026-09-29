@@ -33,6 +33,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
 import org.apache.iceberg.metrics.Counter;
 import org.apache.iceberg.metrics.DefaultMetricsContext;
 import org.junit.jupiter.api.Test;
@@ -138,7 +139,10 @@ public class TestTasks {
         new RuntimeException("failed to read manifest", new IOException("connection reset")),
         // SocketTimeoutException extends InterruptedIOException but is not an interrupt
         new SocketTimeoutException("read timed out"),
-        new RuntimeException("failed to read manifest", new SocketTimeoutException("timed out")));
+        new RuntimeException("failed to read manifest", new SocketTimeoutException("timed out")),
+        new RuntimeException(
+            "failed to read manifest",
+            new ConnectionRequestTimeoutException("Timeout deadline: 10000 MILLISECONDS")));
   }
 
   @Test
