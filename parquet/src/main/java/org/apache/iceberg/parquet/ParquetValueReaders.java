@@ -94,6 +94,10 @@ public class ParquetValueReaders {
     return new IntAsLongReader(desc);
   }
 
+  public static ParquetValueReader<Long> unsignedIntsAsLongs(ColumnDescriptor desc) {
+    return new UnsignedIntAsLongReader(desc);
+  }
+
   public static ParquetValueReader<Double> floatsAsDoubles(ColumnDescriptor desc) {
     return new FloatAsDoubleReader(desc);
   }
@@ -702,6 +706,22 @@ public class ParquetValueReaders {
     @Override
     public long readLong() {
       return super.readInteger();
+    }
+  }
+
+  private static class UnsignedIntAsLongReader extends UnboxedReader<Long> {
+    private UnsignedIntAsLongReader(ColumnDescriptor desc) {
+      super(desc);
+    }
+
+    @Override
+    public Long read(Long ignored) {
+      return readLong();
+    }
+
+    @Override
+    public long readLong() {
+      return Integer.toUnsignedLong(super.readInteger());
     }
   }
 

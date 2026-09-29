@@ -45,8 +45,14 @@ import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.types.Types;
 import org.apache.parquet.avro.AvroParquetWriter;
+import org.apache.parquet.example.data.Group;
+import org.apache.parquet.example.data.simple.SimpleGroupFactory;
 import org.apache.parquet.hadoop.ParquetWriter;
+import org.apache.parquet.hadoop.example.ExampleParquetWriter;
 import org.apache.parquet.io.LocalOutputFile;
+import org.apache.parquet.schema.LogicalTypeAnnotation;
+import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.PrimitiveType;
 import org.junit.jupiter.api.Test;
 
 public class TestGenericData extends DataTestBase {
@@ -183,6 +189,43 @@ public class TestGenericData extends DataTestBase {
 
       assertThat(Lists.newArrayList(reader)).hasSize(1);
     }
+  }
+
+  @Test
+  void unsignedIntReadAsLong() throws IOException {
+    MessageType parquetSchema =
+        new MessageType(
+            "test",
+            org.apache.parquet.schema.Types.optional(PrimitiveType.PrimitiveTypeName.INT32)
+                .as(LogicalTypeAnnotation.intType(32, false))
+                .id(1)
+                .named("uint"));
+    List<Long> expected = List.of(0L, (long) Integer.MAX_VALUE, 1L << 31, (1L << 32) - 1);
+
+    File testFile = temp.resolve("test-file" + System.nanoTime()).toFile();
+    try (ParquetWriter<Group> writer =
+        ExampleParquetWriter.builder(new LocalOutputFile(testFile.toPath()))
+            .withType(parquetSchema)
+            .build()) {
+      SimpleGroupFactory factory = new SimpleGroupFactory(parquetSchema);
+      for (long value : expected) {
+        writer.write(factory.newGroup().append("uint", (int) value));
+      }
+    }
+
+    Schema schema = new Schema(optional(1, "uint", Types.LongType.get()));
+    List<Object> actual = Lists.newArrayList();
+    try (CloseableIterable<Record> reader =
+        Parquet.read(Files.localInput(testFile))
+            .project(schema)
+            .createReaderFunc(fileSchema -> GenericParquetReaders.buildReader(schema, fileSchema))
+            .build()) {
+      for (Record record : reader) {
+        actual.add(record.get(0));
+      }
+    }
+
+    assertThat(actual).isEqualTo(expected);
   }
 
   @Test

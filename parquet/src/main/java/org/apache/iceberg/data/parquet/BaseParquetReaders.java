@@ -185,6 +185,10 @@ abstract class BaseParquetReaders<T> {
       }
 
       if (expected.typeId() == TypeID.LONG) {
+        if (!intLogicalType.isSigned() && intLogicalType.getBitWidth() == 32) {
+          return Optional.of(ParquetValueReaders.unsignedIntsAsLongs(desc));
+        }
+
         return Optional.of(new ParquetValueReaders.IntAsLongReader(desc));
       }
 
