@@ -2146,6 +2146,23 @@ public class TestRewriteDataFilesAction extends TestBase {
   }
 
   @TestTemplate
+  public void zOrderUDFOrdersDates() {
+    SparkZOrderUDF zorderUDF = new SparkZOrderUDF(1, 16, 1024);
+    List<Row> rows =
+        spark
+            .sql("SELECT DATE '2025-01-01' AS test_col UNION ALL SELECT DATE '2025-01-02'")
+            .withColumn(
+                "zorder_result",
+                zorderUDF.sortedLexicographically(col("test_col"), DataTypes.DateType))
+            .orderBy("test_col")
+            .collectAsList();
+
+    byte[] earlier = rows.get(0).getAs("zorder_result");
+    byte[] later = rows.get(1).getAs("zorder_result");
+    assertThat(earlier).isNotEqualTo(later);
+  }
+
+  @TestTemplate
   public void zOrderUDFEncodesNullValuesAsZeroBytes() {
     Object[][] nullsByType = {
       {"CAST(NULL AS BOOLEAN)", DataTypes.BooleanType},
