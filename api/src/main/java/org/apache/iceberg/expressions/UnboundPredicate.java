@@ -18,6 +18,8 @@
  */
 package org.apache.iceberg.expressions;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Set;
 import org.apache.iceberg.exceptions.ValidationException;
@@ -176,7 +178,7 @@ public class UnboundPredicate<T> extends Predicate<T, UnboundTerm<T>>
           boundTerm.type());
     }
 
-    Literal<T> lit = literal().to(boundTerm.type());
+    Literal<T> lit = alignDecimalScale(literal().to(boundTerm.type()), boundTerm.type());
 
     if (lit == null) {
       throw new ValidationException(
@@ -218,7 +220,8 @@ public class UnboundPredicate<T> extends Predicate<T, UnboundTerm<T>>
                 Lists.transform(
                     literals,
                     lit -> {
-                      Literal<T> converted = lit.to(boundTerm.type());
+                      Literal<T> converted =
+                          alignDecimalScale(lit.to(boundTerm.type()), boundTerm.type());
                       ValidationException.check(
                           converted != null,
                           "Invalid value for conversion to type %s: %s (%s)",
@@ -291,6 +294,23 @@ public class UnboundPredicate<T> extends Predicate<T, UnboundTerm<T>>
       default:
         return "Invalid predicate: operation = " + op();
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T> Literal<T> alignDecimalScale(Literal<T> lit, Type type) {
+    if (lit instanceof Literals.DecimalLiteral && type instanceof Types.DecimalType) {
+      BigDecimal value = (BigDecimal) lit.value();
+      int scale = ((Types.DecimalType) type).scale();
+      if (value.scale() != scale) {
+        try {
+          return (Literal<T>) Literal.of(value.setScale(scale, RoundingMode.UNNECESSARY));
+        } catch (ArithmeticException e) {
+          return lit;
+        }
+      }
+    }
+
+    return lit;
   }
 
   @SuppressWarnings("unchecked")
