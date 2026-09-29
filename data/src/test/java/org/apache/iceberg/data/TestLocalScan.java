@@ -604,6 +604,41 @@ public class TestLocalScan {
     }
   }
 
+  @TestTemplate
+  void filterEqualsSupplementaryCharacter() throws IOException {
+    Schema schema =
+        new Schema(
+            required(1, "id", Types.IntegerType.get()),
+            optional(2, "data", Types.StringType.get()));
+
+    File tableLocation = new File(tempDir, "junit" + System.nanoTime());
+    Table table =
+        TABLES.create(
+            schema,
+            PartitionSpec.unpartitioned(),
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            tableLocation.getAbsolutePath());
+
+    Record fullwidth = GenericRecord.create(schema);
+    fullwidth.setField("id", 1);
+    fullwidth.setField("data", "Ａ");
+    Record emoji = GenericRecord.create(schema);
+    emoji.setField("id", 2);
+    emoji.setField("data", "😀");
+
+    DataFile file =
+        writeFile(
+            tableLocation.toString(),
+            format.addExtension("record-file"),
+            schema,
+            ImmutableList.of(fullwidth, emoji));
+    table.newFastAppend().appendFile(file).commit();
+
+    Iterable<Record> results = IcebergGenerics.read(table).where(equal("data", "😀")).build();
+
+    assertThat(results).extracting(record -> record.getField("id")).containsExactly(2);
+  }
+
   private static ByteBuffer longToBuffer(long value) {
     return ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(0, value);
   }

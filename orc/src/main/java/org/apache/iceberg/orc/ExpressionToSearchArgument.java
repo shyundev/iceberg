@@ -283,9 +283,34 @@ class ExpressionToSearchArgument
       // return
       // TruthValue.YES_NO_NULL which signifies that this predicate cannot help with filtering
       return () -> this.builder.literal(TruthValue.YES_NO_NULL);
+    } else if (pred.ref().type().typeId() == TypeID.STRING && hasHighCharLiteral(pred)) {
+      // ORC picks string min/max by UTF-8 bytes but compares them to literals as UTF-16, which
+      // disagree for surrogate pairs and characters from U+E000
+      return () -> this.builder.literal(TruthValue.YES_NO_NULL);
     } else {
       return super.predicate(pred);
     }
+  }
+
+  private static boolean hasHighCharLiteral(BoundPredicate<?> pred) {
+    if (pred.isLiteralPredicate()) {
+      return hasHighChar((CharSequence) pred.asLiteralPredicate().literal().value());
+    } else if (pred.isSetPredicate()) {
+      return pred.asSetPredicate().literalSet().stream()
+          .anyMatch(value -> hasHighChar((CharSequence) value));
+    }
+
+    return false;
+  }
+
+  private static boolean hasHighChar(CharSequence value) {
+    for (int i = 0; i < value.length(); i += 1) {
+      if (value.charAt(i) >= Character.MIN_SURROGATE) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   @FunctionalInterface
