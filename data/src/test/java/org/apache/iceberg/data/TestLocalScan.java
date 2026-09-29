@@ -35,6 +35,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -55,6 +56,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Tables;
+import org.apache.iceberg.TestHelpers;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.hadoop.HadoopTables;
@@ -601,6 +603,60 @@ public class TestLocalScan {
       Record readRecord = filterResult.iterator().next();
       assertThat(readRecord.getField("timestamp_with_zone"))
           .isEqualTo(r.getField("timestamp_with_zone"));
+    }
+  }
+
+  @TestTemplate
+  void readIdentityPartitionedTimestampNano() throws IOException {
+    Schema schema =
+        new Schema(
+            required(1, "id", Types.LongType.get()),
+            required(2, "ts", Types.TimestampNanoType.withoutZone()));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).identity("ts").build();
+    File tableLocation = new File(tempDir, "junit" + System.nanoTime());
+    Table table =
+        TABLES.create(
+            schema,
+            spec,
+            ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT,
+                format.name(),
+                TableProperties.FORMAT_VERSION,
+                "3"),
+            tableLocation.getAbsolutePath());
+
+    LocalDateTime ts = LocalDateTime.of(2026, 9, 30, 12, 34, 56, 123_456_789);
+    Record record = GenericRecord.create(schema).copy(ImmutableMap.of("id", 1L, "ts", ts));
+    new GenericAppenderHelper(table, format, tempDir.toPath())
+        .appendToTable(
+            TestHelpers.Row.of(DateTimeUtil.nanosFromTimestamp(ts)), ImmutableList.of(record));
+
+    try (CloseableIterable<Record> results = IcebergGenerics.read(table).build()) {
+      assertThat(Iterables.getOnlyElement(results).getField("ts")).isEqualTo(ts);
+    }
+  }
+
+  @TestTemplate
+  void readIdentityPartitionedFixed() throws IOException {
+    Schema schema =
+        new Schema(
+            required(1, "id", Types.LongType.get()), required(2, "f", Types.FixedType.ofLength(3)));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).identity("f").build();
+    File tableLocation = new File(tempDir, "junit" + System.nanoTime());
+    Table table =
+        TABLES.create(
+            schema,
+            spec,
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            tableLocation.getAbsolutePath());
+
+    byte[] fixed = new byte[] {1, 2, 3};
+    Record record = GenericRecord.create(schema).copy(ImmutableMap.of("id", 1L, "f", fixed));
+    new GenericAppenderHelper(table, format, tempDir.toPath())
+        .appendToTable(TestHelpers.Row.of(ByteBuffer.wrap(fixed)), ImmutableList.of(record));
+
+    try (CloseableIterable<Record> results = IcebergGenerics.read(table).build()) {
+      assertThat(Iterables.getOnlyElement(results).getField("f")).isEqualTo(fixed);
     }
   }
 
