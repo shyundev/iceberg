@@ -18,14 +18,25 @@
  */
 package org.apache.iceberg.flink.source;
 
+import static org.apache.iceberg.types.Types.NestedField.optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.File;
 import java.util.List;
 import org.apache.flink.table.api.SqlParserException;
 import org.apache.flink.types.Row;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.TestTemplate;
 
 public class TestFlinkTableSource extends TableSourceTestBase {
@@ -57,6 +68,37 @@ public class TestFlinkTableSource extends TableSourceTestBase {
     String sqlMixed = String.format("SELECT * FROM %s WHERE id = 1 LIMIT 2", TABLE_NAME);
     List<Row> mixedResult = sql(sqlMixed);
     assertThat(mixedResult).hasSize(1).first().isEqualTo(Row.of(1, "iceberg", 10.0));
+  }
+
+  @TestTemplate
+  void filterTimestampNanoWithSubMicrosecondLiteral() {
+    File warehouse = temporaryDirectory.resolve("nanos").toFile();
+    HadoopCatalog catalog = new HadoopCatalog(new Configuration(), "file:" + warehouse);
+    Schema schema =
+        new Schema(
+            optional(1, "id", Types.IntegerType.get()),
+            optional(2, "ts", Types.TimestampNanoType.withoutZone()));
+    catalog.createNamespace(Namespace.of("db"));
+    catalog.createTable(
+        TableIdentifier.of("db", "nanos"),
+        schema,
+        PartitionSpec.unpartitioned(),
+        ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
+
+    sql(
+        "CREATE CATALOG nanos_catalog WITH ('type'='iceberg', 'catalog-type'='hadoop', 'warehouse'='file:%s')",
+        warehouse);
+    try {
+      sql(
+          "INSERT INTO nanos_catalog.db.nanos VALUES (1, TIMESTAMP '2026-01-01 00:00:00.123456789')");
+
+      assertThat(
+              sql(
+                  "SELECT id FROM nanos_catalog.db.nanos WHERE ts = TIMESTAMP '2026-01-01 00:00:00.123456789'"))
+          .containsExactly(Row.of(1));
+    } finally {
+      dropCatalog("nanos_catalog", true);
+    }
   }
 
   @TestTemplate

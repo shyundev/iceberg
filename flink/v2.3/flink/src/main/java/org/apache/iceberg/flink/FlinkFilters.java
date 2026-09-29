@@ -211,8 +211,9 @@ public class FlinkFilters {
 
   private static Optional<Object> convertLiteral(ValueLiteralExpression expression) {
     Optional<?> value =
-        expression.getValueAs(
-            expression.getOutputDataType().getLogicalType().getDefaultConversion());
+        expression
+            .getValueAs(expression.getOutputDataType().getLogicalType().getDefaultConversion())
+            .filter(FlinkFilters::hasMicrosecondPrecision);
     return value.map(
         o -> {
           if (o instanceof LocalDateTime) {
@@ -227,6 +228,16 @@ public class FlinkFilters {
 
           return o;
         });
+  }
+
+  private static boolean hasMicrosecondPrecision(Object value) {
+    if (value instanceof LocalDateTime localDateTime) {
+      return localDateTime.getNano() % 1000 == 0;
+    } else if (value instanceof Instant instant) {
+      return instant.getNano() % 1000 == 0;
+    }
+
+    return true;
   }
 
   private static Optional<Expression> convertFieldAndLiteral(
