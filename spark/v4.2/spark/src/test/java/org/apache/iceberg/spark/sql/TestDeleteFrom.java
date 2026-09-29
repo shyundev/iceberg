@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assumptions.assumeThat;
 
 import java.util.List;
 import java.util.Map;
+import org.apache.iceberg.DataOperations;
 import org.apache.iceberg.Parameter;
 import org.apache.iceberg.ParameterizedTestExtension;
 import org.apache.iceberg.Parameters;
@@ -36,6 +37,7 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.spark.CatalogTestBase;
+import org.apache.iceberg.spark.SparkSQLProperties;
 import org.apache.iceberg.spark.source.SimpleRecord;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -157,6 +159,22 @@ public class TestDeleteFrom extends CatalogTestBase {
         "Should have two rows in the second partition",
         ImmutableList.of(row(2L, "b")),
         sql("SELECT * FROM %s ORDER BY id", tableName));
+  }
+
+  @TestTemplate
+  void metadataDeleteAppliesSessionSnapshotProperties() {
+    sql(
+        "CREATE TABLE %s (id bigint NOT NULL, data string) USING iceberg %s",
+        tableName, tableProperties());
+    sql("INSERT INTO TABLE %s VALUES (1, 'a'), (2, 'b'), (3, 'c')", tableName);
+
+    withSQLConf(
+        ImmutableMap.of(SparkSQLProperties.SNAPSHOT_PROPERTY_PREFIX + "test-key", "test-value"),
+        () -> sql("DELETE FROM %s WHERE id < 4", tableName));
+
+    Table table = validationCatalog.loadTable(tableIdent);
+    assertThat(table.currentSnapshot().operation()).isEqualTo(DataOperations.DELETE);
+    assertThat(table.currentSnapshot().summary()).containsEntry("test-key", "test-value");
   }
 
   @TestTemplate
