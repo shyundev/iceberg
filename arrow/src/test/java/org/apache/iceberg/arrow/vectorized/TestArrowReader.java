@@ -389,6 +389,64 @@ public class TestArrowReader {
     assertThat(totalRowsRead).as("Should read all rows").isEqualTo(millisValues.size());
   }
 
+  @Test
+  void dictionaryEncodedTimestampMillisAreReadAsMicros() throws Exception {
+    tables = new HadoopTables();
+    Schema schema =
+        new Schema(Types.NestedField.required(1, "ts_millis", Types.TimestampType.withZone()));
+    Table table = tables.create(schema, tableLocation);
+
+    MessageType parquetSchema =
+        new MessageType(
+            "test",
+            primitive(PrimitiveType.PrimitiveTypeName.INT64, Type.Repetition.REQUIRED)
+                .as(
+                    LogicalTypeAnnotation.timestampType(
+                        true, LogicalTypeAnnotation.TimeUnit.MILLIS))
+                .id(1)
+                .named("ts_millis"));
+
+    // few distinct values keep every page dictionary encoded
+    List<Long> millisValues = Lists.newArrayList(1609459200000L, 1640995200000L, 1672531200000L);
+    int numRows = 300;
+    File testFile = new File(tempDir, "timestamp-millis-dictionary.parquet");
+    try (ParquetWriter<Group> writer =
+        ExampleParquetWriter.builder(new Path(testFile.toURI())).withType(parquetSchema).build()) {
+      SimpleGroupFactory factory = new SimpleGroupFactory(parquetSchema);
+      for (int i = 0; i < numRows; i++) {
+        Group group = factory.newGroup();
+        group.add("ts_millis", millisValues.get(i % millisValues.size()));
+        writer.write(group);
+      }
+    }
+
+    DataFile dataFile =
+        DataFiles.builder(PartitionSpec.unpartitioned())
+            .withPath(testFile.getAbsolutePath())
+            .withFileSizeInBytes(testFile.length())
+            .withFormat(FileFormat.PARQUET)
+            .withRecordCount(numRows)
+            .build();
+    table.newAppend().appendFile(dataFile).commit();
+
+    List<Long> actualMicros = Lists.newArrayList();
+    try (VectorizedTableScanIterable vectorizedReader =
+        new VectorizedTableScanIterable(table.newScan(), 1024, false)) {
+      for (ColumnarBatch batch : vectorizedReader) {
+        for (int i = 0; i < batch.numRows(); i++) {
+          actualMicros.add(batch.column(0).getLong(i));
+        }
+      }
+    }
+
+    List<Long> expectedMicros = Lists.newArrayList();
+    for (int i = 0; i < numRows; i++) {
+      expectedMicros.add(TimeUnit.MILLISECONDS.toMicros(millisValues.get(i % millisValues.size())));
+    }
+
+    assertThat(actualMicros).isEqualTo(expectedMicros);
+  }
+
   /**
    * Reads a decimal(38, 0) column whose values exceed Long.MAX_VALUE. Decimals with precision &gt;=
    * 19 are stored as a FIXED_LEN_BYTE_ARRAY, and reading them must not narrow the unscaled value
