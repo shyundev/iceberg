@@ -118,6 +118,30 @@ public class TestTableUpdater extends TestFlinkIcebergSinkBase {
   }
 
   @Test
+  void schemaWithEmptyStructResolvesToTableSchema() {
+    Catalog catalog = CATALOG_EXTENSION.catalog();
+    TableIdentifier tableIdentifier = TableIdentifier.parse("myTable");
+    TableMetadataCache cache =
+        new TableMetadataCache(catalog, 10, Long.MAX_VALUE, 10, CASE_SENSITIVE, PRESERVE_COLUMNS);
+    TableUpdater tableUpdater = new TableUpdater(cache, catalog, CASE_SENSITIVE, PRESERVE_COLUMNS);
+    Schema schema =
+        new Schema(
+            Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "marker", Types.StructType.of()));
+
+    Tuple2<TableMetadataCache.ResolvedSchemaInfo, PartitionSpec> result =
+        tableUpdater.update(
+            tableIdentifier,
+            SnapshotRef.MAIN_BRANCH,
+            schema,
+            PartitionSpec.unpartitioned(),
+            TableCreator.DEFAULT);
+
+    assertThat(result.f0.compareResult()).isEqualTo(CompareSchemasVisitor.Result.SAME);
+    assertThat(result.f0.resolvedTableSchema().sameSchema(schema)).isTrue();
+  }
+
+  @Test
   void testBranchCreationAndCaching() {
     Catalog catalog = CATALOG_EXTENSION.catalog();
     TableIdentifier tableIdentifier = TableIdentifier.parse("myTable");
