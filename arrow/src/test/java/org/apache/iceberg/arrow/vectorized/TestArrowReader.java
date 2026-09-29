@@ -742,6 +742,59 @@ public class TestArrowReader {
     assertThat(actualValues).containsExactlyInAnyOrderElementsOf(allExpectedValues);
   }
 
+  @ParameterizedTest
+  @MethodSource("acceptedUnsignedSmallIntegerCases")
+  void dictionaryEncodedUnsignedSmallIntegerColumnRoundtrips(int unsignedBitWidth, int value)
+      throws Exception {
+    tables = new HadoopTables();
+    Schema schema = new Schema(Types.NestedField.optional(1, "col", Types.IntegerType.get()));
+    Table table = tables.create(schema, tempDir.toURI() + "/uint-dict" + unsignedBitWidth);
+
+    MessageType parquetSchema =
+        new MessageType(
+            "test",
+            primitive(PrimitiveType.PrimitiveTypeName.INT32, Type.Repetition.OPTIONAL)
+                .as(LogicalTypeAnnotation.intType(unsignedBitWidth, false))
+                .id(1)
+                .named("col"));
+
+    // a repeated value keeps the column dictionary encoded
+    int numRows = 100;
+    File testFile = new File(tempDir, "uint-dict" + unsignedBitWidth + ".parquet");
+    try (ParquetWriter<Group> writer =
+        ExampleParquetWriter.builder(new Path(testFile.toURI())).withType(parquetSchema).build()) {
+      SimpleGroupFactory factory = new SimpleGroupFactory(parquetSchema);
+      for (int i = 0; i < numRows; i++) {
+        Group group = factory.newGroup();
+        group.add("col", value);
+        writer.write(group);
+      }
+    }
+
+    table
+        .newAppend()
+        .appendFile(
+            DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath(testFile.getAbsolutePath())
+                .withFileSizeInBytes(testFile.length())
+                .withFormat(FileFormat.PARQUET)
+                .withRecordCount(numRows)
+                .build())
+        .commit();
+
+    List<Integer> actual = Lists.newArrayList();
+    try (VectorizedTableScanIterable vectorizedReader =
+        new VectorizedTableScanIterable(table.newScan(), 1024, false)) {
+      for (ColumnarBatch batch : vectorizedReader) {
+        for (int i = 0; i < batch.numRows(); i++) {
+          actual.add(batch.column(0).getInt(i));
+        }
+      }
+    }
+
+    assertThat(actual).hasSize(numRows).containsOnly(value);
+  }
+
   private static Stream<Arguments> rejectedUnsignedIntegerCases() {
     return Stream.of(
         Arguments.of(
