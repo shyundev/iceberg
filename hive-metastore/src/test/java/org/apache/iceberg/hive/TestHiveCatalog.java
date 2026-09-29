@@ -1322,6 +1322,32 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
     }
   }
 
+  @Test
+  public void listTablesWithLowerCaseTableType() throws TException {
+    Namespace ns = Namespace.of(DB_NAME);
+    TableIdentifier identifier = TableIdentifier.of(ns, "lower_case_type");
+    catalog.createTable(identifier, getTestSchema());
+
+    try {
+      org.apache.hadoop.hive.metastore.api.Table hmsTable =
+          HIVE_METASTORE_EXTENSION.metastoreClient().getTable(DB_NAME, identifier.name());
+      hmsTable.getParameters().put(BaseMetastoreTableOperations.TABLE_TYPE_PROP, "iceberg");
+      HIVE_METASTORE_EXTENSION.metastoreClient().alter_table(DB_NAME, identifier.name(), hmsTable);
+
+      assertThat(
+              HIVE_METASTORE_EXTENSION
+                  .metastoreClient()
+                  .getTable(DB_NAME, identifier.name())
+                  .getParameters()
+                  .get(BaseMetastoreTableOperations.TABLE_TYPE_PROP))
+          .isEqualTo("iceberg");
+      assertThat(catalog.loadTable(identifier)).isNotNull();
+      assertThat(catalog.listTables(ns)).containsExactly(identifier);
+    } finally {
+      catalog.dropTable(identifier);
+    }
+  }
+
   private org.apache.hadoop.hive.metastore.api.Table createNonIcebergTable(
       String hiveTableName, TableType type) {
     StorageDescriptor sd =
