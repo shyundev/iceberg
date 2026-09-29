@@ -40,6 +40,7 @@ import org.apache.flink.streaming.api.graph.StreamGraphGenerator;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.flink.maintenance.operator.MetricsReporterFactoryForTests;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -284,6 +285,28 @@ class TestDeleteOrphanFiles extends MaintenanceTaskTestBase {
                     DELETE_FILE_SUCCEEDED_COUNTER),
                 0L)
             .build());
+  }
+
+  @Test
+  void gcDisabledKeepsOrphanFiles() throws Exception {
+    Table table = createTable();
+    insert(table, 1, "a");
+    table.updateProperties().set(TableProperties.GC_ENABLED, "false").commit();
+
+    Path orphan = relative(table, "metadata/orphan");
+    createFiles(orphan);
+
+    appendDeleteOrphanFiles();
+
+    runAndWaitForResult(
+        infra.env(),
+        infra.source(),
+        infra.sink(),
+        false /* generateFailure */,
+        () -> true,
+        false /* resultSuccess */);
+
+    assertThat(orphan).exists();
   }
 
   private void appendDeleteOrphanFiles() {

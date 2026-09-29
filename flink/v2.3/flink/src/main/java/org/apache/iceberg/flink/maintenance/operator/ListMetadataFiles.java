@@ -18,6 +18,9 @@
  */
 package org.apache.iceberg.flink.maintenance.operator;
 
+import static org.apache.iceberg.TableProperties.GC_ENABLED;
+import static org.apache.iceberg.TableProperties.GC_ENABLED_DEFAULT;
+
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.metrics.Counter;
@@ -26,10 +29,12 @@ import org.apache.flink.util.Collector;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ReachableFileUtil;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.flink.TableLoader;
 import org.apache.iceberg.flink.maintenance.api.DeleteOrphanFiles;
 import org.apache.iceberg.flink.maintenance.api.Trigger;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
+import org.apache.iceberg.util.PropertyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,6 +72,9 @@ public class ListMetadataFiles extends ProcessFunction<Trigger, String> {
       throws Exception {
     try {
       table.refresh();
+      ValidationException.check(
+          PropertyUtil.propertyAsBoolean(table.properties(), GC_ENABLED, GC_ENABLED_DEFAULT),
+          "Cannot delete orphan files: GC is disabled (deleting files may corrupt other tables)");
       table
           .snapshots()
           .forEach(
