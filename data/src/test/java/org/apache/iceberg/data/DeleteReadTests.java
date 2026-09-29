@@ -385,6 +385,41 @@ public abstract class DeleteReadTests {
   }
 
   @TestTemplate
+  public void equalityDeleteOnDroppedColumn() throws IOException {
+    table.updateSchema().addColumn("status", Types.StringType.get()).commit();
+
+    GenericRecord record = GenericRecord.create(table.schema());
+    List<Record> recordsWithStatus =
+        Lists.newArrayList(
+            record.copy("id", 200, "data", "h", "status", "ACTIVE"),
+            record.copy("id", 201, "data", "i", "status", "INACTIVE"),
+            record.copy("id", 202, "data", "j", "status", "ACTIVE"));
+    DataFile dataFileWithStatus =
+        FileHelpers.writeDataFile(
+            table,
+            Files.localOutput(temp.resolve("junit" + System.nanoTime()).toFile()),
+            Row.of(0),
+            recordsWithStatus);
+    table.newAppend().appendFile(dataFileWithStatus).commit();
+
+    Schema deleteRowSchema = table.schema().select("status");
+    Record statusDelete = GenericRecord.create(deleteRowSchema);
+    DeleteFile eqDeletes =
+        FileHelpers.writeDeleteFile(
+            table,
+            Files.localOutput(temp.resolve("junit" + System.nanoTime()).toFile()),
+            Row.of(0),
+            Lists.newArrayList(statusDelete.copy("status", "INACTIVE")),
+            deleteRowSchema);
+    table.newRowDelta().addDeletes(eqDeletes).commit();
+
+    table.updateSchema().deleteColumn("status").commit();
+
+    StructLikeSet actual = rowSet(tableName, table, "id", "data");
+    assertThat(actual).hasSize(records.size() + 2);
+  }
+
+  @TestTemplate
   public void testPositionDeletes() throws IOException {
     List<Pair<CharSequence, Long>> deletes =
         Lists.newArrayList(
