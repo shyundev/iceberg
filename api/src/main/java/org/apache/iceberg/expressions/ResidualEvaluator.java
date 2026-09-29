@@ -164,14 +164,16 @@ public class ResidualEvaluator implements Serializable {
 
     @Override
     public <T> Expression lt(BoundReference<T> ref, Literal<T> lit) {
+      T value = ref.eval(struct);
       Comparator<T> cmp = lit.comparator();
-      return (cmp.compare(ref.eval(struct), lit.value()) < 0) ? alwaysTrue() : alwaysFalse();
+      return value != null && cmp.compare(value, lit.value()) < 0 ? alwaysTrue() : alwaysFalse();
     }
 
     @Override
     public <T> Expression ltEq(BoundReference<T> ref, Literal<T> lit) {
+      T value = ref.eval(struct);
       Comparator<T> cmp = lit.comparator();
-      return (cmp.compare(ref.eval(struct), lit.value()) <= 0) ? alwaysTrue() : alwaysFalse();
+      return value != null && cmp.compare(value, lit.value()) <= 0 ? alwaysTrue() : alwaysFalse();
     }
 
     @Override
@@ -212,14 +214,16 @@ public class ResidualEvaluator implements Serializable {
 
     @Override
     public <T> Expression startsWith(BoundReference<T> ref, Literal<T> lit) {
-      return ((String) ref.eval(struct)).startsWith((String) lit.value())
+      T value = ref.eval(struct);
+      return value != null && ((String) value).startsWith((String) lit.value())
           ? alwaysTrue()
           : alwaysFalse();
     }
 
     @Override
     public <T> Expression notStartsWith(BoundReference<T> ref, Literal<T> lit) {
-      return ((String) ref.eval(struct)).startsWith((String) lit.value())
+      T value = ref.eval(struct);
+      return value != null && ((String) value).startsWith((String) lit.value())
           ? alwaysFalse()
           : alwaysTrue();
     }

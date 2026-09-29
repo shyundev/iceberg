@@ -29,9 +29,12 @@ import static org.apache.iceberg.expressions.Expressions.greaterThan;
 import static org.apache.iceberg.expressions.Expressions.in;
 import static org.apache.iceberg.expressions.Expressions.isNaN;
 import static org.apache.iceberg.expressions.Expressions.lessThan;
+import static org.apache.iceberg.expressions.Expressions.lessThanOrEqual;
 import static org.apache.iceberg.expressions.Expressions.notIn;
 import static org.apache.iceberg.expressions.Expressions.notNaN;
+import static org.apache.iceberg.expressions.Expressions.notStartsWith;
 import static org.apache.iceberg.expressions.Expressions.or;
+import static org.apache.iceberg.expressions.Expressions.startsWith;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -287,6 +290,36 @@ public class TestResiduals {
 
     residual = resEval.residualFor(Row.of((Object) null));
     assertThat(residual).as("null not in [a, b, c] => true").isEqualTo(alwaysTrue());
+  }
+
+  @Test
+  void lessThanWithNullPartition() {
+    Schema schema = new Schema(Types.NestedField.optional(50, "dateint", Types.IntegerType.get()));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).identity("dateint").build();
+
+    assertThat(
+            ResidualEvaluator.of(spec, lessThan("dateint", 20170815), true)
+                .residualFor(Row.of((Object) null)))
+        .isEqualTo(alwaysFalse());
+    assertThat(
+            ResidualEvaluator.of(spec, lessThanOrEqual("dateint", 20170815), true)
+                .residualFor(Row.of((Object) null)))
+        .isEqualTo(alwaysFalse());
+  }
+
+  @Test
+  void startsWithWithNullPartition() {
+    Schema schema = new Schema(Types.NestedField.optional(50, "category", Types.StringType.get()));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).identity("category").build();
+
+    assertThat(
+            ResidualEvaluator.of(spec, startsWith("category", "a"), true)
+                .residualFor(Row.of((Object) null)))
+        .isEqualTo(alwaysFalse());
+    assertThat(
+            ResidualEvaluator.of(spec, notStartsWith("category", "a"), true)
+                .residualFor(Row.of((Object) null)))
+        .isEqualTo(alwaysTrue());
   }
 
   @Test

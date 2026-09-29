@@ -471,6 +471,41 @@ public class TestDeleteFiles extends TestBase {
   }
 
   @TestTemplate
+  void deleteByRowFilterKeepsNullPartition() {
+    Schema schema = new Schema(Types.NestedField.optional(1, "x", Types.IntegerType.get()));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).identity("x").build();
+    Table nullTable = TestTables.create(tableDir, "nullpartition", schema, spec, formatVersion);
+
+    PartitionData partitionOne = new PartitionData(spec.partitionType());
+    partitionOne.set(0, 1);
+    PartitionData nullPartition = new PartitionData(spec.partitionType());
+    nullPartition.set(0, null);
+
+    DataFile fileOne =
+        DataFiles.builder(spec)
+            .withPartition(partitionOne)
+            .withPath("/x-1.parquet")
+            .withFileSizeInBytes(100)
+            .withRecordCount(1)
+            .build();
+    DataFile nullFile =
+        DataFiles.builder(spec)
+            .withPartition(nullPartition)
+            .withPath("/x-null.parquet")
+            .withFileSizeInBytes(100)
+            .withRecordCount(1)
+            .build();
+
+    nullTable.newFastAppend().appendFile(fileOne).appendFile(nullFile).commit();
+
+    nullTable.newDelete().deleteFromRowFilter(Expressions.lessThan("x", 5)).commit();
+
+    assertThat(Lists.newArrayList(nullTable.newScan().planFiles()))
+        .extracting(task -> task.file().location())
+        .containsExactly(nullFile.location());
+  }
+
+  @TestTemplate
   public void testDeleteValidateFileExistence() {
     Snapshot append = commit(table, table.newFastAppend().appendFile(FILE_B), branch);
     assertThat(append.summary())
