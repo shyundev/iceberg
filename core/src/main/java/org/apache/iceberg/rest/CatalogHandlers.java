@@ -52,11 +52,9 @@ import org.apache.iceberg.BaseTransaction;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.IncrementalAppendScan;
 import org.apache.iceberg.MetadataUpdate.UpgradeFormatVersion;
-import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RetryableValidationException;
 import org.apache.iceberg.Scan;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
@@ -416,30 +414,22 @@ public class CatalogHandlers {
     properties.put("created-at", OffsetDateTime.now(ZoneOffset.UTC).toString());
     properties.putAll(request.properties());
 
-    String location;
-    if (request.location() != null) {
-      location = request.location();
-    } else {
-      location =
-          catalog
-              .buildTable(ident, request.schema())
-              .withPartitionSpec(request.spec())
-              .withSortOrder(request.writeOrder())
-              .withProperties(properties)
-              .createTransaction()
-              .table()
-              .location();
+    Transaction transaction =
+        catalog
+            .buildTable(ident, request.schema())
+            .withLocation(request.location())
+            .withPartitionSpec(request.spec())
+            .withSortOrder(request.writeOrder())
+            .withProperties(properties)
+            .createTransaction();
+
+    if (transaction instanceof BaseTransaction) {
+      return LoadTableResponse.builder()
+          .withTableMetadata(((BaseTransaction) transaction).currentMetadata())
+          .build();
     }
 
-    TableMetadata metadata =
-        TableMetadata.newTableMetadata(
-            request.schema(),
-            request.spec() != null ? request.spec() : PartitionSpec.unpartitioned(),
-            request.writeOrder() != null ? request.writeOrder() : SortOrder.unsorted(),
-            location,
-            properties);
-
-    return LoadTableResponse.builder().withTableMetadata(metadata).build();
+    throw new IllegalStateException("Cannot wrap catalog that does not produce BaseTransaction");
   }
 
   public static LoadTableResponse createTable(

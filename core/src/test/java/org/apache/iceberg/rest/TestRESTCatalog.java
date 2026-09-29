@@ -539,6 +539,34 @@ public class TestRESTCatalog extends CatalogTests<RESTCatalog> {
   }
 
   @Test
+  void createTransactionAppliesServerCatalogTableDefaultsAndOverrides() throws IOException {
+    InMemoryCatalog serverCatalog = new InMemoryCatalog();
+    serverCatalog.initialize(
+        "server",
+        ImmutableMap.of(
+            CatalogProperties.TABLE_DEFAULT_PREFIX + "server-default",
+            "default-value",
+            CatalogProperties.TABLE_OVERRIDE_PREFIX + "server-override",
+            "override-value"));
+
+    try (RESTCatalog catalog =
+        new RESTCatalog(
+            SessionCatalog.SessionContext.createEmpty(),
+            (config) -> new RESTCatalogAdapter(serverCatalog))) {
+      catalog.initialize("prod", ImmutableMap.of(CatalogProperties.URI, "ignored"));
+      catalog.createNamespace(TBL.namespace());
+
+      catalog.buildTable(TBL, SCHEMA).createTransaction().commitTransaction();
+
+      assertThat(catalog.loadTable(TBL).properties())
+          .containsEntry("server-default", "default-value")
+          .containsEntry("server-override", "override-value");
+    } finally {
+      serverCatalog.close();
+    }
+  }
+
+  @Test
   public void testCatalogBasicBearerToken() {
     Map<String, String> catalogHeaders = ImmutableMap.of("Authorization", "Bearer bearer-token");
 
