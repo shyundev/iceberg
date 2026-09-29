@@ -696,6 +696,54 @@ public class TestSparkReaderDeletes extends DeleteReadTests {
     }
   }
 
+  @TestTemplate
+  public void testEqualityDeleteWithSchemaEvolution() throws IOException {
+    assumeThat(format).isEqualTo(FileFormat.PARQUET);
+
+    String tableName = table.name().substring(table.name().lastIndexOf(".") + 1);
+
+    // add column `status`
+    table.updateSchema().addColumn("status", Types.StringType.get()).commit();
+
+    // add data with `status` column
+    GenericRecord recordWithStatus = GenericRecord.create(table.schema());
+    List<Record> recordsWithStatus =
+        Lists.newArrayList(
+            recordWithStatus.copy("id", 200, "data", "h", "status", "ACTIVE"),
+            recordWithStatus.copy("id", 201, "data", "i", "status", "INACTIVE"),
+            recordWithStatus.copy("id", 202, "data", "j", "status", "ACTIVE"));
+    DataFile dataFileWithStatus =
+        FileHelpers.writeDataFile(
+            table,
+            Files.localOutput(temp.resolve("junit-v2-" + System.nanoTime()).toFile()),
+            TestHelpers.Row.of(0),
+            recordsWithStatus);
+    table.newAppend().appendFile(dataFileWithStatus).commit();
+
+    // issue equality delete on `status` column
+    Schema deleteSchema = table.schema().select("status");
+    Record deleteRecordWithStatus = GenericRecord.create(deleteSchema);
+    List<Record> deleteRecordsWithStatus =
+        Lists.newArrayList(deleteRecordWithStatus.copy("status", "INACTIVE"));
+    DeleteFile eqDeleteFileWithStatus =
+        FileHelpers.writeDeleteFile(
+            table,
+            Files.localOutput(temp.resolve("junit-deletes-" + System.nanoTime()).toFile()),
+            TestHelpers.Row.of(0),
+            deleteRecordsWithStatus,
+            deleteSchema);
+    table.newRowDelta().addDeletes(eqDeleteFileWithStatus).commit();
+
+    // drop `status` column
+    table.updateSchema().deleteColumn("status").commit();
+
+    // verify reading of equality deletes even though schema doesn't contain `status` column
+    // only 1 of 3 records with status got removed
+    StructLikeSet actual = rowSet(tableName, table, "id", "data");
+    int expectedRecordCount = records.size() + 2;
+    assertThat(actual).hasSize(expectedRecordCount);
+  }
+
   private static final Schema PROJECTION_SCHEMA =
       new Schema(
           required(1, "id", Types.IntegerType.get()),
