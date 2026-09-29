@@ -547,6 +547,18 @@ public class TestRecordConverter {
   }
 
   @Test
+  void decimalConversionOutsideLongRange() {
+    Table table = mock(Table.class);
+    when(table.schema()).thenReturn(SIMPLE_SCHEMA);
+    RecordConverter converter = new RecordConverter(table, config);
+
+    assertThat(converter.convertDecimal(1.0e20d, DecimalType.of(38, 0)))
+        .isEqualTo(new BigDecimal("100000000000000000000"));
+    assertThat(converter.convertDecimal(-1.0e20d, DecimalType.of(38, 0)))
+        .isEqualTo(new BigDecimal("-100000000000000000000"));
+  }
+
+  @Test
   public void testDateConversion() {
     Table table = mock(Table.class);
     when(table.schema()).thenReturn(SIMPLE_SCHEMA);

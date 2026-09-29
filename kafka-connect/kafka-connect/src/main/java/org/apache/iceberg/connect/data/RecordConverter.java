@@ -460,14 +460,10 @@ class RecordConverter {
     BigDecimal bigDecimal;
     if (value instanceof BigDecimal) {
       bigDecimal = (BigDecimal) value;
+    } else if (value instanceof Float || value instanceof Double) {
+      bigDecimal = BigDecimal.valueOf(((Number) value).doubleValue());
     } else if (value instanceof Number) {
-      Number num = (Number) value;
-      Double dbl = num.doubleValue();
-      if (dbl.equals(Math.floor(dbl))) {
-        bigDecimal = BigDecimal.valueOf(num.longValue());
-      } else {
-        bigDecimal = BigDecimal.valueOf(dbl);
-      }
+      bigDecimal = BigDecimal.valueOf(((Number) value).longValue());
     } else if (value instanceof String) {
       bigDecimal = new BigDecimal((String) value);
     } else {
