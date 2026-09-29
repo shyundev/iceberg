@@ -109,7 +109,15 @@ public class StrictMetricsEvaluator {
 
     @Override
     protected boolean canContainNulls(int id) {
-      return nullCounts == null || (nullCounts.containsKey(id) && nullCounts.get(id) > 0);
+      if (nullCounts == null) {
+        return true;
+      }
+
+      if (nullCounts.containsKey(id)) {
+        return nullCounts.get(id) > 0;
+      }
+
+      return struct.field(id).isOptional();
     }
 
     @Override

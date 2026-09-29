@@ -921,4 +921,27 @@ public class TestStrictMetricsEvaluator {
         new StrictMetricsEvaluator(SCHEMA, startsWith("struct.nested_string_col", "a")).eval(FILE);
     assertThat(shouldRead).as("Should not match: nested column is not supported").isFalse();
   }
+
+  @Test
+  void unknownNullCountOfOptionalColumn() {
+    DataFile file =
+        new TestDataFile(
+            "file_without_null_count.avro",
+            Row.of(),
+            50,
+            // any value counts, including nulls
+            ImmutableMap.of(5, 50L, 6, 50L),
+            // null value counts, unknown for column 5
+            ImmutableMap.of(6, 0L),
+            // nan value counts
+            null,
+            // lower bounds
+            ImmutableMap.of(5, toByteBuffer(StringType.get(), "bbb")),
+            // upper bounds
+            ImmutableMap.of(5, toByteBuffer(StringType.get(), "eee")));
+
+    boolean shouldRead =
+        new StrictMetricsEvaluator(SCHEMA, lessThan("some_nulls", "fff")).eval(file);
+    assertThat(shouldRead).as("Should not match: column may contain nulls").isFalse();
+  }
 }

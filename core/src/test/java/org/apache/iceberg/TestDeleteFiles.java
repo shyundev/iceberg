@@ -757,6 +757,44 @@ public class TestDeleteFiles extends TestBase {
     assertThat(peakOpenStreams.get()).isEqualTo(1);
   }
 
+  @TestTemplate
+  public void cannotDeleteFileWithUnknownNullCountByRowFilter() {
+    Schema schema = new Schema(Types.NestedField.optional(1, "x", Types.LongType.get()));
+    Table unknownNullCountTable =
+        TestTables.create(
+            tableDir, "unknown_null_count", schema, PartitionSpec.unpartitioned(), formatVersion);
+
+    DataFile dataFile =
+        DataFiles.builder(PartitionSpec.unpartitioned())
+            .withPath("/path/to/data-unknown-null-count.parquet")
+            .withFileSizeInBytes(10)
+            .withMetrics(
+                new Metrics(
+                    5L,
+                    null, // no column sizes
+                    ImmutableMap.of(1, 5L), // value count
+                    ImmutableMap.of(), // null count is unknown
+                    null, // no nan value counts
+                    ImmutableMap.of(1, longToBuffer(0L)), // lower bounds
+                    ImmutableMap.of(1, longToBuffer(2L)) // upper bounds
+                    ))
+            .build();
+
+    commit(
+        unknownNullCountTable, unknownNullCountTable.newFastAppend().appendFile(dataFile), branch);
+
+    assertThatThrownBy(
+            () ->
+                commit(
+                    unknownNullCountTable,
+                    unknownNullCountTable
+                        .newDelete()
+                        .deleteFromRowFilter(Expressions.lessThan("x", 5L)),
+                    branch))
+        .isInstanceOf(ValidationException.class)
+        .hasMessageStartingWith("Cannot delete file where some, but not all, rows match filter");
+  }
+
   private static ByteBuffer longToBuffer(long value) {
     return ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(0, value);
   }
