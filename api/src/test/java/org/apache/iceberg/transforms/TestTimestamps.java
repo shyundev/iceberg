@@ -358,6 +358,28 @@ public class TestTimestamps {
   }
 
   @Test
+  void preEpochTimestampInFirstSecondOfUnit() {
+    Types.TimestampType type = Types.TimestampType.withoutZone();
+    long micros = Literal.of("1969-01-01T00:00:00.999999").<Long>to(type).value();
+
+    assertThat(Transforms.year().bind(type).apply(micros)).isEqualTo(-1);
+    assertThat(Transforms.month().bind(type).apply(micros)).isEqualTo(-12);
+    assertThat(Transforms.day().bind(type).apply(micros)).isEqualTo(-365);
+    assertThat(Transforms.hour().bind(type).apply(micros)).isEqualTo(-365 * 24);
+  }
+
+  @Test
+  void preEpochTimestampNanoInFirstSecondOfUnit() {
+    Types.TimestampNanoType type = Types.TimestampNanoType.withoutZone();
+    long nanos = Literal.of("1969-01-01T00:00:00.999999999").<Long>to(type).value();
+
+    assertThat(Transforms.year().bind(type).apply(nanos)).isEqualTo(-1);
+    assertThat(Transforms.month().bind(type).apply(nanos)).isEqualTo(-12);
+    assertThat(Transforms.day().bind(type).apply(nanos)).isEqualTo(-365);
+    assertThat(Transforms.hour().bind(type).apply(nanos)).isEqualTo(-365 * 24);
+  }
+
+  @Test
   public void testTimestampWithoutZoneToHumanString() {
     Types.TimestampType type = Types.TimestampType.withoutZone();
     Literal<Long> date = Literal.of("2017-12-01T10:12:55.038194").to(type);
