@@ -1072,6 +1072,31 @@ public class TestRewriteTablePathsAction extends TestBase {
   }
 
   @TestTemplate
+  void fullCopyIncludesFilesAddedByExpiredSnapshots() throws Exception {
+    String location = newTableLocation();
+    Table sourceTable =
+        createTableWithSnapshots(
+            location, 2, ImmutableMap.of(TableProperties.METADATA_PREVIOUS_VERSIONS_MAX, "1"));
+    actions()
+        .expireSnapshots(sourceTable)
+        .expireSnapshotId(sourceTable.currentSnapshot().parentId())
+        .execute();
+    // one more commit drops the last version file that listed the expired snapshot
+    sourceTable.refresh();
+    sourceTable.updateProperties().set("key", "value").commit();
+
+    RewriteTablePath.Result result =
+        actions()
+            .rewriteTablePath(sourceTable)
+            .stagingLocation(stagingLocation())
+            .rewriteLocationPrefix(location, targetTableLocation())
+            .execute();
+    copyTableFiles(result);
+
+    assertEquals("Rows should match after copy", rows(location), rows(targetTableLocation()));
+  }
+
+  @TestTemplate
   public void testRewritePathWithNonLiveEntry() throws Exception {
     String location = newTableLocation();
     // first overwrite generate 1 manifest and 1 data file
