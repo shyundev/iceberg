@@ -239,6 +239,17 @@ public class TestBucketingProjection {
   }
 
   @Test
+  void bucketDecimalInclusiveWithLiteralScaleDifferentFromColumn() {
+    Types.DecimalType type = Types.DecimalType.of(9, 2);
+    Schema schema = new Schema(optional(1, "value", type));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("value", 10).build();
+
+    // 100.0 is equal to the decimal(9, 2) value 100.00, which is in bucket 2
+    assertProjectionInclusive(
+        spec, equal("value", new BigDecimal("100.0")), Expression.Operation.EQ, "2");
+  }
+
+  @Test
   public void testBucketDecimalInclusive() {
     Types.DecimalType type = Types.DecimalType.of(9, 2);
     BigDecimal value = (BigDecimal) Literal.of("100.00").to(type).value();

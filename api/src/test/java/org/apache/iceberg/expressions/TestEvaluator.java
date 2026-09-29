@@ -43,6 +43,7 @@ import static org.apache.iceberg.types.Types.NestedField.required;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -680,6 +681,18 @@ public class TestEvaluator {
     assertThat(nullStringEvaluator.eval(TestHelpers.Row.of((String) null)))
         .as("null in [abc, abd] => false")
         .isFalse();
+  }
+
+  @Test
+  void inDecimalWithLiteralScaleDifferentFromColumn() {
+    StructType struct = StructType.of(required(1, "dec", Types.DecimalType.of(9, 2)));
+    TestHelpers.Row row = TestHelpers.Row.of(new BigDecimal("14.20"));
+
+    assertThat(new Evaluator(struct, equal("dec", new BigDecimal("14.2"))).eval(row)).isTrue();
+    assertThat(
+            new Evaluator(struct, in("dec", new BigDecimal("14.2"), new BigDecimal("15.1")))
+                .eval(row))
+        .isTrue();
   }
 
   @Test

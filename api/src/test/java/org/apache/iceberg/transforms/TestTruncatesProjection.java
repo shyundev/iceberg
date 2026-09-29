@@ -299,6 +299,17 @@ public class TestTruncatesProjection {
   }
 
   @Test
+  void truncateDecimalInclusiveWithLiteralScaleDifferentFromColumn() {
+    Types.DecimalType type = Types.DecimalType.of(9, 2);
+    Schema schema = new Schema(optional(1, "value", type));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).truncate("value", 10).build();
+
+    // 100.5 is equal to the decimal(9, 2) value 100.50, which truncates to 100.50
+    assertProjectionInclusive(
+        spec, equal("value", new BigDecimal("100.5")), Expression.Operation.EQ, "100.50");
+  }
+
+  @Test
   public void testDecimalStrictLowerBound() {
     Types.DecimalType type = Types.DecimalType.of(9, 2);
     BigDecimal value = (BigDecimal) Literal.of("100.00").to(type).value();

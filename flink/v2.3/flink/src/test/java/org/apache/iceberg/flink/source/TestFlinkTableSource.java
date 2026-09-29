@@ -18,14 +18,23 @@
  */
 package org.apache.iceberg.flink.source;
 
+import static org.apache.iceberg.types.Types.NestedField.optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.File;
 import java.util.List;
 import org.apache.flink.table.api.SqlParserException;
 import org.apache.flink.types.Row;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.TestTemplate;
 
 public class TestFlinkTableSource extends TableSourceTestBase {
@@ -57,6 +66,33 @@ public class TestFlinkTableSource extends TableSourceTestBase {
     String sqlMixed = String.format("SELECT * FROM %s WHERE id = 1 LIMIT 2", TABLE_NAME);
     List<Row> mixedResult = sql(sqlMixed);
     assertThat(mixedResult).hasSize(1).first().isEqualTo(Row.of(1, "iceberg", 10.0));
+  }
+
+  @TestTemplate
+  void filterBucketedDecimalWithLiteralScaleDifferentFromColumn() {
+    File warehouse = temporaryDirectory.resolve("bucketed").toFile();
+    HadoopCatalog catalog = new HadoopCatalog(new Configuration(), "file:" + warehouse);
+    Schema schema =
+        new Schema(
+            optional(1, "id", Types.IntegerType.get()),
+            optional(2, "amount", Types.DecimalType.of(9, 2)));
+    catalog.createNamespace(Namespace.of("db"));
+    catalog.createTable(
+        TableIdentifier.of("db", "bucketed"),
+        schema,
+        PartitionSpec.builderFor(schema).bucket("amount", 16).build());
+
+    sql(
+        "CREATE CATALOG bucketed_catalog WITH ('type'='iceberg', 'catalog-type'='hadoop', 'warehouse'='file:%s')",
+        warehouse);
+    try {
+      sql("INSERT INTO bucketed_catalog.db.bucketed VALUES (1, CAST(14.20 AS DECIMAL(9, 2)))");
+
+      assertThat(sql("SELECT id FROM bucketed_catalog.db.bucketed WHERE amount = 14.2"))
+          .containsExactly(Row.of(1));
+    } finally {
+      dropCatalog("bucketed_catalog", true);
+    }
   }
 
   @TestTemplate
