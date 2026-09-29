@@ -21,12 +21,14 @@ package org.apache.iceberg.flink.data;
 import static org.apache.iceberg.types.Types.NestedField.optional;
 import static org.apache.parquet.schema.Types.primitive;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Stream;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
@@ -57,6 +59,9 @@ import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Type;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 public class TestFlinkParquetReader extends DataTestBase {
   private static final int NUM_RECORDS = 100;
@@ -181,6 +186,40 @@ public class TestFlinkParquetReader extends DataTestBase {
         FlinkParquetReaders.buildReader(new Schema(SUPPORTED_PRIMITIVES.fields()), fileSchema);
 
     assertThat(reader.columns()).hasSameSizeAs(SUPPORTED_PRIMITIVES.fields());
+  }
+
+  @ParameterizedTest
+  @MethodSource("unsignedIntegerColumns")
+  void unsignedIntegerOutOfRangeIsRejected(
+      PrimitiveType.PrimitiveTypeName physicalType,
+      int bitWidth,
+      Types.NestedField field,
+      String expectedMessage) {
+    MessageType fileSchema =
+        new MessageType(
+            "test",
+            primitive(physicalType, Type.Repetition.OPTIONAL)
+                .as(LogicalTypeAnnotation.intType(bitWidth, false))
+                .id(field.fieldId())
+                .named(field.name()));
+
+    assertThatThrownBy(() -> FlinkParquetReaders.buildReader(new Schema(field), fileSchema))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage(expectedMessage);
+  }
+
+  private static Stream<Arguments> unsignedIntegerColumns() {
+    return Stream.of(
+        Arguments.of(
+            PrimitiveType.PrimitiveTypeName.INT32,
+            32,
+            optional(1, "uint32", Types.IntegerType.get()),
+            "Cannot read UINT32 as an int value"),
+        Arguments.of(
+            PrimitiveType.PrimitiveTypeName.INT64,
+            64,
+            optional(1, "uint64", Types.LongType.get()),
+            "Cannot read UINT64 as a long value"));
   }
 
   @Test

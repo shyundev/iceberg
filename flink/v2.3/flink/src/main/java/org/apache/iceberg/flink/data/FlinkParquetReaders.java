@@ -45,6 +45,7 @@ import org.apache.iceberg.parquet.ParquetVariantReaders.DelegatingValueReader;
 import org.apache.iceberg.parquet.ParquetVariantVisitor;
 import org.apache.iceberg.parquet.TypeWithSchemaVisitor;
 import org.apache.iceberg.parquet.VariantReaderBuilder;
+import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
@@ -277,9 +278,13 @@ public class FlinkParquetReaders {
           if (expected.typeId() == Types.LongType.get().typeId()) {
             return Optional.of(new ParquetValueReaders.IntAsLongReader(desc));
           } else {
+            Preconditions.checkArgument(
+                intLogicalType.isSigned() || width < 32, "Cannot read UINT32 as an int value");
             return Optional.of(new ParquetValueReaders.UnboxedReader<>(desc));
           }
         } else if (width <= 64) {
+          Preconditions.checkArgument(
+              intLogicalType.isSigned(), "Cannot read UINT64 as a long value");
           return Optional.of(new ParquetValueReaders.UnboxedReader<>(desc));
         }
 
