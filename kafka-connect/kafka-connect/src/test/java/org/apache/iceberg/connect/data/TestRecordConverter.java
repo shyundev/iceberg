@@ -19,6 +19,7 @@
 package org.apache.iceberg.connect.data;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -544,6 +545,16 @@ public class TestRecordConverter {
               BigDecimal decimal = converter.convertDecimal(input, DecimalType.of(10, 0));
               assertThat(decimal).isEqualTo(expected2);
             });
+  }
+
+  @Test
+  void intConversionOutsideIntRange() {
+    Table table = mock(Table.class);
+    when(table.schema()).thenReturn(SIMPLE_SCHEMA);
+    RecordConverter converter = new RecordConverter(table, config);
+
+    assertThatThrownBy(() -> converter.convertInt(3_000_000_000L))
+        .isInstanceOf(ArithmeticException.class);
   }
 
   @Test
