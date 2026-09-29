@@ -21,7 +21,6 @@ package org.apache.iceberg.spark.source;
 import static org.apache.iceberg.types.Types.NestedField.optional;
 import static org.apache.iceberg.types.Types.NestedField.required;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assumptions.assumeThat;
 
 import java.io.File;
 import java.net.InetAddress;
@@ -446,7 +445,12 @@ public class TestPartitionValues {
     Dataset<Row> sourceDF = spark.createDataFrame(rows, new StructType(structFields));
 
     // write into iceberg
-    sourceDF.write().format("iceberg").mode(SaveMode.Append).save(baseLocation);
+    sourceDF
+        .write()
+        .format("iceberg")
+        .option(SparkWriteOptions.WRITE_FORMAT, format.toString())
+        .mode(SaveMode.Append)
+        .save(baseLocation);
 
     // verify
     List<Row> actual =
@@ -462,8 +466,6 @@ public class TestPartitionValues {
 
   @TestTemplate
   public void testReadPartitionColumn() throws Exception {
-    assumeThat(format).as("Temporary skip ORC").isNotEqualTo(FileFormat.ORC);
-
     Schema nestedSchema =
         new Schema(
             Types.NestedField.optional(1, "id", Types.LongType.get()),

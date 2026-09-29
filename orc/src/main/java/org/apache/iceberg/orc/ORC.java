@@ -777,10 +777,13 @@ public class ORC {
                   MetadataColumns.ROW_ID.fieldId(),
                   MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.fieldId()));
 
+      Schema readSchema =
+          TypeUtil.project(schema, Sets.difference(TypeUtil.getProjectedIds(schema), idsToExclude));
+
       return new OrcIterable<>(
           file,
           conf,
-          TypeUtil.selectNot(schema, idsToExclude),
+          readSchema,
           nameMapping,
           start,
           length,

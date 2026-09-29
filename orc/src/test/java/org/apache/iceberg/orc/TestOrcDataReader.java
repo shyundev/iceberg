@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileContent;
@@ -219,6 +220,46 @@ public class TestOrcDataReader implements WithAssertions {
     }
 
     assertThat(rows).extracting(row -> row.getField("id")).containsExactly(2L);
+  }
+
+  @Test
+  void readsStructWithOnlyConstantFields() throws IOException {
+    Schema schema =
+        new Schema(
+            Types.NestedField.required(1, "id", Types.LongType.get()),
+            Types.NestedField.required(
+                2,
+                "struct",
+                Types.StructType.of(
+                    Types.NestedField.required(3, "data", Types.StringType.get()))));
+    Types.StructType structType = schema.findType("struct").asStructType();
+    Record expected =
+        GenericRecord.create(schema)
+            .copy("id", 1L, "struct", GenericRecord.create(structType).copy("data", "a"));
+
+    OutputFile structFile = Files.localOutput(File.createTempFile("struct-", ".orc", temp));
+    try (FileAppender<Record> writer =
+        ORC.write(structFile)
+            .schema(schema)
+            .createWriterFunc(GenericOrcWriter::buildWriter)
+            .overwrite()
+            .build()) {
+      writer.add(expected);
+    }
+
+    Map<Integer, Object> idToConstant = ImmutableMap.of(3, "a");
+    List<Record> rows;
+    try (CloseableIterable<Record> reader =
+        ORC.read(structFile.toInputFile())
+            .project(schema)
+            .constantFieldIds(idToConstant.keySet())
+            .createReaderFunc(
+                fileSchema -> GenericOrcReader.buildReader(schema, fileSchema, idToConstant))
+            .build()) {
+      rows = Lists.newArrayList(reader);
+    }
+
+    assertThat(rows).containsExactly(expected);
   }
 
   private static Stream<Types.TimestampNanoType> timestampNanoTypes() {
