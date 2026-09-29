@@ -256,6 +256,18 @@ public class TestSnapshotProducer extends TestBase {
   }
 
   @TestTemplate
+  void copiedAppendManifestUsesManifestCompression() throws IOException {
+    assumeThat(formatVersion).as("Only V1 copies appended manifests").isEqualTo(1);
+
+    table.updateProperties().set(TableProperties.MANIFEST_COMPRESSION, "snappy").commit();
+
+    table.newFastAppend().appendManifest(writeManifest(FILE_A)).commit();
+
+    ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+    assertThat(readAvroCodec(new File(manifest.path()))).isEqualTo("snappy");
+  }
+
+  @TestTemplate
   public void testWriteManifestsWithNullExecutorThrows() {
     assertThatThrownBy(() -> table.newAppend().writeManifestsWith(null, 4))
         .isInstanceOf(IllegalArgumentException.class)

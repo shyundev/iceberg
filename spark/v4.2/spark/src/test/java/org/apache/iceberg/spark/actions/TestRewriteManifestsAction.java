@@ -23,6 +23,7 @@ import static org.apache.iceberg.ValidationHelpers.fileSeqs;
 import static org.apache.iceberg.ValidationHelpers.files;
 import static org.apache.iceberg.ValidationHelpers.snapshotIds;
 import static org.apache.iceberg.ValidationHelpers.validateDataManifest;
+import static org.apache.iceberg.avro.AvroTestHelpers.readAvroCodec;
 import static org.apache.iceberg.types.Types.NestedField.optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -33,6 +34,7 @@ import static org.mockito.Mockito.when;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -387,6 +389,33 @@ public class TestRewriteManifestsAction extends TestBase {
         resultDF.sort("c1", "c2").as(Encoders.bean(ThreeColumnRecord.class)).collectAsList();
 
     assertThat(actualRecords).as("Rows must match").isEqualTo(expectedRecords);
+  }
+
+  @TestTemplate
+  void rewriteManifestsUsesManifestCompressionCodec() {
+    Map<String, String> options = Maps.newHashMap();
+    options.put(TableProperties.FORMAT_VERSION, String.valueOf(formatVersion));
+    options.put(TableProperties.SNAPSHOT_ID_INHERITANCE_ENABLED, snapshotIdInheritanceEnabled);
+    options.put(TableProperties.MANIFEST_COMPRESSION, "snappy");
+    Table table = TABLES.create(SCHEMA, PartitionSpec.unpartitioned(), options, tableLocation);
+
+    writeRecords(Lists.newArrayList(new ThreeColumnRecord(1, "AAAA", "AAAA")));
+    writeRecords(Lists.newArrayList(new ThreeColumnRecord(2, "BBBB", "BBBB")));
+    table.refresh();
+
+    SparkActions.get()
+        .rewriteManifests(table)
+        .rewriteIf(manifest -> true)
+        .option(RewriteManifestsSparkAction.USE_CACHING, useCaching)
+        .execute();
+
+    table.refresh();
+    assertThat(table.currentSnapshot().allManifests(table.io()))
+        .hasSize(1)
+        .allSatisfy(
+            manifest ->
+                assertThat(readAvroCodec(new File(URI.create(manifest.path()))))
+                    .isEqualTo("snappy"));
   }
 
   @TestTemplate
