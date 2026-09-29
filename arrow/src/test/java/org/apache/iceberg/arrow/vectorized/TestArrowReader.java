@@ -742,6 +742,64 @@ public class TestArrowReader {
     assertThat(actualValues).containsExactlyInAnyOrderElementsOf(allExpectedValues);
   }
 
+  @Test
+  void plainEncodedBinaryDecimalIsRead() throws Exception {
+    tables = new HadoopTables();
+    Schema schema = new Schema(Types.NestedField.optional(1, "dec", Types.DecimalType.of(10, 2)));
+    Table table = tables.create(schema, tempDir.toURI() + "/binary-decimal");
+
+    MessageType parquetSchema =
+        new MessageType(
+            "test",
+            primitive(PrimitiveType.PrimitiveTypeName.BINARY, Type.Repetition.OPTIONAL)
+                .as(LogicalTypeAnnotation.decimalType(2, 10))
+                .id(1)
+                .named("dec"));
+
+    List<BigDecimal> expected =
+        Lists.newArrayList(
+            new BigDecimal("-999.99"), new BigDecimal("0.01"), new BigDecimal("12345678.90"));
+    File testFile = new File(tempDir, "binary-decimal.parquet");
+    try (ParquetWriter<Group> writer =
+        ExampleParquetWriter.builder(new Path(testFile.toURI()))
+            .withType(parquetSchema)
+            .withDictionaryEncoding(false)
+            .build()) {
+      SimpleGroupFactory factory = new SimpleGroupFactory(parquetSchema);
+      for (BigDecimal value : expected) {
+        Group group = factory.newGroup();
+        group.add(
+            "dec",
+            org.apache.parquet.io.api.Binary.fromConstantByteArray(
+                value.unscaledValue().toByteArray()));
+        writer.write(group);
+      }
+    }
+
+    table
+        .newAppend()
+        .appendFile(
+            DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath(testFile.getAbsolutePath())
+                .withFileSizeInBytes(testFile.length())
+                .withFormat(FileFormat.PARQUET)
+                .withRecordCount(expected.size())
+                .build())
+        .commit();
+
+    List<BigDecimal> actual = Lists.newArrayList();
+    try (VectorizedTableScanIterable vectorizedReader =
+        new VectorizedTableScanIterable(table.newScan(), 1024, false)) {
+      for (ColumnarBatch batch : vectorizedReader) {
+        for (int i = 0; i < batch.numRows(); i++) {
+          actual.add(batch.column(0).getDecimal(i, 10, 2));
+        }
+      }
+    }
+
+    assertThat(actual).isEqualTo(expected);
+  }
+
   private static Stream<Arguments> rejectedUnsignedIntegerCases() {
     return Stream.of(
         Arguments.of(
