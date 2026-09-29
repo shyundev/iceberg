@@ -176,11 +176,7 @@ public class OrcMetrics {
           // containers (maps, list) may be larger than what it actually is, however these are not
           // used in expressions right now. For such cases, we use the number of values
           // directly stored in ORC.
-          if (colStat.hasNull()) {
-            nullCounts.put(fieldId, numOfRows - colStat.getNumberOfValues());
-          } else {
-            nullCounts.put(fieldId, 0L);
-          }
+          nullCounts.put(fieldId, numOfRows - colStat.getNumberOfValues());
           valueCounts.put(fieldId, colStat.getNumberOfValues() + nullCounts.get(fieldId));
 
           if (metricsMode != MetricsModes.Counts.get()) {

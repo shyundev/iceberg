@@ -604,6 +604,44 @@ public class TestLocalScan {
     }
   }
 
+  @TestTemplate
+  void filterNestedFieldIsNullWhenStructIsNull() throws IOException {
+    Schema schema =
+        new Schema(
+            required(1, "id", Types.IntegerType.get()),
+            optional(
+                2, "struct", Types.StructType.of(optional(3, "value", Types.IntegerType.get()))));
+
+    File tableLocation = new File(tempDir, "junit" + System.nanoTime());
+    Table table =
+        TABLES.create(
+            schema,
+            PartitionSpec.unpartitioned(),
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            tableLocation.getAbsolutePath());
+
+    Record nullStruct = GenericRecord.create(schema);
+    nullStruct.setField("id", 1);
+    Record struct = GenericRecord.create(schema.findType("struct").asStructType());
+    struct.setField("value", 10);
+    Record presentStruct = GenericRecord.create(schema);
+    presentStruct.setField("id", 2);
+    presentStruct.setField("struct", struct);
+
+    DataFile file =
+        writeFile(
+            tableLocation.toString(),
+            format.addExtension("record-file"),
+            schema,
+            ImmutableList.of(nullStruct, presentStruct));
+    table.newFastAppend().appendFile(file).commit();
+
+    Iterable<Record> results =
+        IcebergGenerics.read(table).where(Expressions.isNull("struct.value")).build();
+
+    assertThat(results).extracting(record -> record.getField("id")).containsExactly(1);
+  }
+
   private static ByteBuffer longToBuffer(long value) {
     return ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(0, value);
   }

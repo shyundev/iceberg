@@ -24,6 +24,7 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.Set;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.Bound;
 import org.apache.iceberg.expressions.BoundPredicate;
 import org.apache.iceberg.expressions.BoundReference;
@@ -33,6 +34,7 @@ import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Type.TypeID;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.orc.TypeDescription;
 import org.apache.orc.storage.common.type.HiveDecimal;
@@ -46,10 +48,11 @@ class ExpressionToSearchArgument
     extends ExpressionVisitors.BoundVisitor<ExpressionToSearchArgument.Action> {
 
   static SearchArgument convert(Expression expr, TypeDescription readSchema) {
-    Map<Integer, String> idToColumnName =
-        ORCSchemaUtil.idToOrcName(ORCSchemaUtil.convert(readSchema));
+    Schema schema = ORCSchemaUtil.convert(readSchema);
+    Map<Integer, String> idToColumnName = ORCSchemaUtil.idToOrcName(schema);
     SearchArgument.Builder builder = SearchArgumentFactory.newBuilder();
-    ExpressionVisitors.visit(expr, new ExpressionToSearchArgument(builder, idToColumnName))
+    ExpressionVisitors.visit(
+            expr, new ExpressionToSearchArgument(builder, schema.asStruct(), idToColumnName))
         .invoke();
     return builder.build();
   }
@@ -67,11 +70,15 @@ class ExpressionToSearchArgument
           TypeID.VARIANT);
 
   private final SearchArgument.Builder builder;
+  private final Types.StructType struct;
   private final Map<Integer, String> idToColumnName;
 
   private ExpressionToSearchArgument(
-      SearchArgument.Builder builder, Map<Integer, String> idToColumnName) {
+      SearchArgument.Builder builder,
+      Types.StructType struct,
+      Map<Integer, String> idToColumnName) {
     this.builder = builder;
+    this.struct = struct;
     this.idToColumnName = idToColumnName;
   }
 
@@ -282,6 +289,10 @@ class ExpressionToSearchArgument
       // Cannot push down predicates for types which cannot be represented in PredicateLeaf.Type, so
       // return
       // TruthValue.YES_NO_NULL which signifies that this predicate cannot help with filtering
+      return () -> this.builder.literal(TruthValue.YES_NO_NULL);
+    } else if (pred.op() == Expression.Operation.IS_NULL
+        && struct.field(pred.ref().fieldId()) == null) {
+      // ORC statistics for a nested field do not count rows where a parent struct is null
       return () -> this.builder.literal(TruthValue.YES_NO_NULL);
     } else {
       return super.predicate(pred);
