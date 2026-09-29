@@ -46,6 +46,7 @@ import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.Files;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Parameter;
 import org.apache.iceberg.ParameterizedTestExtension;
@@ -60,6 +61,9 @@ import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DataWriter;
+import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.mapping.MappingUtil;
+import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.metrics.InMemoryMetricsReporter;
 import org.apache.iceberg.metrics.ScanReport;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
@@ -602,6 +606,48 @@ public class TestLocalScan {
       assertThat(readRecord.getField("timestamp_with_zone"))
           .isEqualTo(r.getField("timestamp_with_zone"));
     }
+  }
+
+  @TestTemplate
+  void readFileWithoutFieldIdsUsingNameMapping() throws IOException {
+    Schema schema =
+        new Schema(
+            optional(1, "first", Types.StringType.get()),
+            optional(2, "second", Types.StringType.get()));
+    File tableLocation = new File(tempDir, "junit" + System.nanoTime());
+    Table table =
+        TABLES.create(
+            schema,
+            PartitionSpec.unpartitioned(),
+            ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT,
+                format.name(),
+                TableProperties.DEFAULT_NAME_MAPPING,
+                NameMappingParser.toJson(MappingUtil.create(schema))),
+            tableLocation.toString());
+
+    Schema fileSchema = new Schema(schema.findField("second"), schema.findField("first"));
+    Record record = GenericRecord.create(fileSchema);
+    record.setField("first", "a");
+    record.setField("second", "b");
+    OutputFile outputFile =
+        Files.localOutput(new File(tableLocation, format.addExtension("no-field-ids")));
+    FileFormatTestSupport.forFormat(format)
+        .writeRecordsWithoutFieldIds(outputFile, fileSchema, ImmutableList.of(record));
+    table
+        .newAppend()
+        .appendFile(
+            DataFiles.builder(PartitionSpec.unpartitioned())
+                .withInputFile(outputFile.toInputFile())
+                .withRecordCount(1)
+                .build())
+        .commit();
+    table.updateSchema().renameColumn("second", "renamed").commit();
+
+    Record expected = GenericRecord.create(table.schema());
+    expected.setField("first", "a");
+    expected.setField("renamed", "b");
+    assertThat(IcebergGenerics.read(table).build()).containsExactly(expected);
   }
 
   private static ByteBuffer longToBuffer(long value) {
