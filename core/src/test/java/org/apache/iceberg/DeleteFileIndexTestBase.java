@@ -36,10 +36,12 @@ import java.util.function.Function;
 import org.apache.iceberg.DeleteFileIndex.EqualityDeletes;
 import org.apache.iceberg.DeleteFileIndex.PositionDeletes;
 import org.apache.iceberg.exceptions.ValidationException;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
+import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.CharSequenceSet;
 import org.apache.iceberg.util.ContentFileUtil;
@@ -795,5 +797,42 @@ public abstract class DeleteFileIndexTestBase<
     assertThatThrownBy(() -> index.forDataFile(2, FILE_A))
         .isInstanceOf(ValidationException.class)
         .hasMessageContaining("must be greater than or equal to data file sequence number");
+  }
+
+  @TestTemplate
+  void equalityDeleteAppliesRegardlessOfOtherColumnValues() throws IOException {
+    PartitionSpec spec = PartitionSpec.unpartitioned();
+    Table table = TestTables.create(tableDir, "unpartitioned", SCHEMA, spec, formatVersion);
+    DataFile dataFile = unpartitionedFile(spec);
+    table.newAppend().appendFile(dataFile).commit();
+
+    // deletes rows with id = 1, and also stores data = "b" from one of the deleted rows
+    DeleteFile eqDeletes =
+        FileMetadata.deleteFileBuilder(spec)
+            .ofEqualityDeletes(1)
+            .withPath("/path/to/data-unpartitioned-eq-deletes-with-data.parquet")
+            .withFileSizeInBytes(10)
+            .withMetrics(
+                new Metrics(
+                    1L,
+                    null,
+                    ImmutableMap.of(1, 1L, 2, 1L),
+                    ImmutableMap.of(1, 0L, 2, 0L),
+                    null,
+                    ImmutableMap.of(
+                        1, Conversions.toByteBuffer(Types.IntegerType.get(), 1),
+                        2, Conversions.toByteBuffer(Types.StringType.get(), "b")),
+                    ImmutableMap.of(
+                        1, Conversions.toByteBuffer(Types.IntegerType.get(), 1),
+                        2, Conversions.toByteBuffer(Types.StringType.get(), "b"))))
+            .build();
+    table.newRowDelta().addDeletes(eqDeletes).commit();
+
+    try (CloseableIterable<T> tasks = newScan(table).filter(equal("data", "a")).planFiles()) {
+      FileScanTask task = (FileScanTask) Iterables.getOnlyElement(tasks);
+      assertThat(task.deletes())
+          .extracting(ContentFile::location)
+          .containsExactly(eqDeletes.location());
+    }
   }
 }
