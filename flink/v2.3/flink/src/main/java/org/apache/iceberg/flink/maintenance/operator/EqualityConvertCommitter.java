@@ -32,6 +32,7 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.exceptions.CleanableFailure;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.flink.TableLoader;
 import org.apache.iceberg.flink.maintenance.api.Trigger;
@@ -219,9 +220,13 @@ public class EqualityConvertCommitter extends AbstractStreamOperator<Trigger>
       // them for Remove Orphan Files rather than risk deleting live data.
       throw e;
     } catch (Exception e) {
-      // Commit definitively failed: the DVs this cycle wrote are unreferenced. Delete them so a
-      // failed cycle does not leak Puffin files. Rewritten DVs stay (still live on the target).
-      deleteUncommittedDVs();
+      // A cleanable failure means the commit was not applied: the DVs this cycle wrote are
+      // unreferenced. Delete them so a failed cycle does not leak Puffin files. Rewritten DVs stay
+      // (still live on the target).
+      if (e instanceof CleanableFailure) {
+        deleteUncommittedDVs();
+      }
+
       throw e;
     }
 

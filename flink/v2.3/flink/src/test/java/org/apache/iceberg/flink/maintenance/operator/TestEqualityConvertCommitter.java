@@ -45,6 +45,7 @@ import org.apache.iceberg.data.FileHelpers;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.flink.SimpleDataUtil;
 import org.apache.iceberg.flink.maintenance.api.Trigger;
@@ -460,6 +461,61 @@ class TestEqualityConvertCommitter extends OperatorTestBase {
       assertThat(errors.get(0).getValue()).isInstanceOf(CommitStateUnknownException.class);
 
       // Commit outcome unknown: the DV may be live, so it must not be deleted.
+      assertThat(table.io().newInputFile(writtenDv.location()).exists()).isTrue();
+    }
+  }
+
+  @Test
+  void retainsWrittenDvsWhenCommitFailsAfterItWasApplied() throws Exception {
+    Table table = createTable(2, FileFormat.PARQUET);
+    insert(table, 1, "a");
+
+    DataFile stagingDataFile = getFirstDataFile(table);
+    long mainSnapshotIdAtPlan = table.currentSnapshot().snapshotId();
+
+    DeleteFile writtenDv = writePosDeleteFile(table, stagingDataFile.location(), 0L);
+    assertThat(table.io().newInputFile(writtenDv.location()).exists()).isTrue();
+
+    EqualityConvertCommitter committer =
+        new EqualityConvertCommitter(
+            DUMMY_TABLE_NAME, DUMMY_TASK_NAME, tableLoader(), "staging", SnapshotRef.MAIN_BRANCH) {
+          @Override
+          void commit(RowDelta rowDelta) {
+            rowDelta.commit();
+            throw new RESTException("simulated connection reset after the commit was applied");
+          }
+        };
+
+    try (TwoInputStreamOperatorTestHarness<DVWriteResult, EqualityConvertPlan, Trigger> harness =
+        new TwoInputStreamOperatorTestHarness<>(committer)) {
+      harness.open();
+
+      long doneTs = System.currentTimeMillis();
+      EqualityConvertPlan planResult =
+          new EqualityConvertPlan(
+              Lists.newArrayList(stagingDataFile),
+              Lists.newArrayList(),
+              Lists.newArrayList(),
+              888L,
+              mainSnapshotIdAtPlan,
+              doneTs - 1,
+              doneTs);
+
+      harness.processElement1(
+          new StreamRecord<>(
+              new DVWriteResult(Lists.newArrayList(writtenDv), Lists.newArrayList()), doneTs));
+      harness.processElement2(new StreamRecord<>(planResult, doneTs - 1));
+      harness.processBothWatermarks(new Watermark(doneTs));
+
+      List<StreamRecord<Exception>> errors =
+          Lists.newArrayList(harness.getSideOutput(TaskResultAggregator.ERROR_STREAM));
+      assertThat(errors).hasSize(1);
+      assertThat(errors.get(0).getValue()).isInstanceOf(RESTException.class);
+
+      table.refresh();
+      assertThat(table.currentSnapshot().addedDeleteFiles(table.io()))
+          .extracting(DeleteFile::location)
+          .containsExactly(writtenDv.location());
       assertThat(table.io().newInputFile(writtenDv.location()).exists()).isTrue();
     }
   }
