@@ -24,6 +24,9 @@ import static org.apache.iceberg.types.Types.NestedField.optional;
 import static org.apache.iceberg.types.Types.NestedField.required;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -45,6 +48,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecordBuilder;
+import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.Files;
@@ -68,6 +72,7 @@ import org.apache.iceberg.data.Record;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.InputFile;
@@ -2298,6 +2303,69 @@ public abstract class TestIcebergSourceTablesBase extends TestBase {
             .load(loadLocation(tableIdentifier, "partitions"))
             .collectAsList();
     assertThat(partitionsTableRows).as("Partitions table should have 2 rows").hasSize(2);
+  }
+
+  @Test
+  void importSparkTableKeepsManifestsWhenCommitStateUnknown() throws IOException {
+    TableIdentifier tableIdentifier = TableIdentifier.of("db", "commit_state_unknown_test");
+    Table table = createTable(tableIdentifier, SCHEMA, SPEC);
+
+    File parquetTableDir = temp.resolve("table_commit_state_unknown").toFile();
+    String parquetTableLocation = parquetTableDir.toURI().toString();
+    spark.sql(
+        String.format(
+            "CREATE TABLE parquet_table (data string, id int) "
+                + "USING parquet PARTITIONED BY (id) LOCATION '%s'",
+            parquetTableLocation));
+
+    List<SimpleRecord> records =
+        Lists.newArrayList(new SimpleRecord(1, "a"), new SimpleRecord(2, "b"));
+    spark
+        .createDataFrame(records, SimpleRecord.class)
+        .select("data", "id")
+        .write()
+        .insertInto("parquet_table");
+
+    NameMapping mapping = MappingUtil.create(table.schema());
+    table
+        .updateProperties()
+        .set(TableProperties.DEFAULT_NAME_MAPPING, NameMappingParser.toJson(mapping))
+        .commit();
+
+    AppendFiles append = table.newAppend();
+    AppendFiles spyAppend = spy(append);
+    doAnswer(
+            invocation -> {
+              append.commit();
+              throw new CommitStateUnknownException(new RuntimeException("Datacenter on Fire"));
+            })
+        .when(spyAppend)
+        .commit();
+
+    Table spyTable = spy(table);
+    when(spyTable.newAppend()).thenReturn(spyAppend);
+
+    String stagingLocation = table.location() + "/metadata";
+
+    assertThatThrownBy(
+            () ->
+                SparkTableUtil.importSparkTable(
+                    spark,
+                    new org.apache.spark.sql.catalyst.TableIdentifier("parquet_table"),
+                    spyTable,
+                    stagingLocation))
+        .isInstanceOf(CommitStateUnknownException.class)
+        .hasMessageStartingWith("Datacenter on Fire");
+
+    List<SimpleRecord> actual =
+        spark
+            .read()
+            .format("iceberg")
+            .load(loadLocation(tableIdentifier))
+            .orderBy("id")
+            .as(Encoders.bean(SimpleRecord.class))
+            .collectAsList();
+    assertThat(actual).isEqualTo(records);
   }
 
   private void testWithFilter(String filterExpr, TableIdentifier tableIdentifier) {

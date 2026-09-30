@@ -61,6 +61,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.data.TableMigrationUtil;
+import org.apache.iceberg.exceptions.CleanableFailure;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hadoop.SerializableConfiguration;
 import org.apache.iceberg.hadoop.Util;
@@ -659,7 +660,10 @@ public class SparkTableUtil {
         deleteManifests(targetTable.io(), manifests);
       }
     } catch (Throwable e) {
-      deleteManifests(targetTable.io(), manifests);
+      if (e instanceof CleanableFailure) {
+        deleteManifests(targetTable.io(), manifests);
+      }
+
       throw e;
     }
   }
