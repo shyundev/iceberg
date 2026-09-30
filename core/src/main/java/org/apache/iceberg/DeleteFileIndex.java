@@ -342,10 +342,6 @@ class DeleteFileIndex {
   }
 
   private static boolean allNonNull(Map<Integer, Long> nullValueCounts, Types.NestedField field) {
-    if (field.isRequired()) {
-      return true;
-    }
-
     if (nullValueCounts == null) {
       return false;
     }
@@ -360,10 +356,6 @@ class DeleteFileIndex {
 
   private static boolean allNull(
       Map<Integer, Long> nullValueCounts, Map<Integer, Long> valueCounts, Types.NestedField field) {
-    if (field.isRequired()) {
-      return false;
-    }
-
     if (nullValueCounts == null || valueCounts == null) {
       return false;
     }
@@ -378,10 +370,6 @@ class DeleteFileIndex {
   }
 
   private static boolean containsNull(Map<Integer, Long> nullValueCounts, Types.NestedField field) {
-    if (field.isRequired()) {
-      return false;
-    }
-
     if (nullValueCounts == null) {
       return true;
     }

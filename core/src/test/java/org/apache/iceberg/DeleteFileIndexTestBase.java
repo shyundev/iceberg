@@ -20,6 +20,8 @@ package org.apache.iceberg;
 
 import static org.apache.iceberg.expressions.Expressions.bucket;
 import static org.apache.iceberg.expressions.Expressions.equal;
+import static org.apache.iceberg.types.Types.NestedField.optional;
+import static org.apache.iceberg.types.Types.NestedField.required;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assumptions.assumeThat;
@@ -40,6 +42,7 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
+import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.CharSequenceSet;
 import org.apache.iceberg.util.ContentFileUtil;
@@ -795,5 +798,50 @@ public abstract class DeleteFileIndexTestBase<
     assertThatThrownBy(() -> index.forDataFile(2, FILE_A))
         .isInstanceOf(ValidationException.class)
         .hasMessageContaining("must be greater than or equal to data file sequence number");
+  }
+
+  @TestTemplate
+  void nullEqualityDeleteOnRequiredFieldInOptionalStruct() {
+    Schema schema =
+        new Schema(
+            required(1, "id", Types.LongType.get()),
+            optional(2, "struct", Types.StructType.of(required(3, "x", Types.IntegerType.get()))));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).build();
+
+    // x is null in rows where struct is null
+    DataFile dataFile =
+        DataFiles.builder(spec)
+            .withPath("/path/to/data-nested.parquet")
+            .withFileSizeInBytes(10)
+            .withMetrics(nestedFieldMetrics(5))
+            .build();
+    DeleteFile eqDeletes =
+        withDataSequenceNumber(
+            2,
+            FileMetadata.deleteFileBuilder(spec)
+                .ofEqualityDeletes(3)
+                .withPath("/path/to/data-nested-eq-deletes.parquet")
+                .withFileSizeInBytes(10)
+                .withMetrics(nestedFieldMetrics(100))
+                .build());
+
+    DeleteFileIndex index =
+        DeleteFileIndex.builderFor(Collections.singletonList(eqDeletes))
+            .specsById(ImmutableMap.of(spec.specId(), spec))
+            .build();
+
+    assertThat(index.forDataFile(1, dataFile)).containsExactly(eqDeletes);
+  }
+
+  private static Metrics nestedFieldMetrics(int nonNullValue) {
+    ByteBuffer bound = Conversions.toByteBuffer(Types.IntegerType.get(), nonNullValue);
+    return new Metrics(
+        2L,
+        null,
+        ImmutableMap.of(3, 2L),
+        ImmutableMap.of(3, 1L),
+        null,
+        ImmutableMap.of(3, bound),
+        ImmutableMap.of(3, bound));
   }
 }
