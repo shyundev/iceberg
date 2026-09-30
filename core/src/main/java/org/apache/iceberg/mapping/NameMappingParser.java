@@ -69,7 +69,7 @@ public class NameMappingParser {
   private static void toJson(MappedField field, JsonGenerator generator) throws IOException {
     generator.writeStartObject();
 
-    generator.writeNumberField(FIELD_ID, field.id());
+    JsonUtil.writeIntegerFieldIfPresent(FIELD_ID, field.id(), generator);
 
     JsonUtil.writeStringArray(NAMES, field.names(), generator);
 

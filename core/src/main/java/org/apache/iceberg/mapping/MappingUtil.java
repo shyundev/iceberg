@@ -117,7 +117,8 @@ public class MappingUtil {
       }
 
       // add a new mapping for any new nested fields
-      MappedFields nestedMapping = addNewFields(fieldResult, field.id());
+      MappedFields nestedMapping =
+          field.id() != null ? addNewFields(fieldResult, field.id()) : fieldResult;
       return MappedField.of(field.id(), fieldNames, nestedMapping);
     }
 

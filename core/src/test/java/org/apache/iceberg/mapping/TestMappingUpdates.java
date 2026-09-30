@@ -102,6 +102,31 @@ public class TestMappingUpdates extends TestBase {
   }
 
   @TestTemplate
+  void addColumnMappingUpdateWithUnmappedName() {
+    table
+        .updateProperties()
+        .set(
+            TableProperties.DEFAULT_NAME_MAPPING,
+            "[{\"field-id\": 1, \"names\": [\"id\"]},"
+                + " {\"field-id\": 2, \"names\": [\"data\"]},"
+                + " {\"names\": [\"extra\"]}]")
+        .commit();
+
+    table.updateSchema().addColumn("ts", Types.TimestampType.withZone()).commit();
+
+    NameMapping updated =
+        NameMappingParser.fromJson(table.properties().get(TableProperties.DEFAULT_NAME_MAPPING));
+
+    assertThat(updated.asMappedFields())
+        .isEqualTo(
+            MappedFields.of(
+                MappedField.of(1, "id"),
+                MappedField.of(2, "data"),
+                MappedField.of(null, "extra"),
+                MappedField.of(3, "ts")));
+  }
+
+  @TestTemplate
   public void testRenameMappingUpdate() {
     NameMapping mapping = MappingUtil.create(table.schema());
     table
