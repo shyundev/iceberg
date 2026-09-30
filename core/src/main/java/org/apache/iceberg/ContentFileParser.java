@@ -65,6 +65,10 @@ public class ContentFileParser {
     return partitionData != null && partitionData.size() > 0;
   }
 
+  private static boolean isPartitionDataValid(PartitionSpec spec, StructLike partitionData) {
+    return hasPartitionData(partitionData) ? !spec.fields().isEmpty() : spec.isUnpartitioned();
+  }
+
   public static String toJson(ContentFile<?> contentFile, PartitionSpec spec) {
     return JsonUtil.generate(
         generator -> ContentFileParser.toJson(contentFile, spec, generator), false);
@@ -81,7 +85,7 @@ public class ContentFileParser {
         spec.specId(),
         contentFile.specId());
     Preconditions.checkArgument(
-        spec.isPartitioned() == hasPartitionData(contentFile.partition()),
+        isPartitionDataValid(spec, contentFile.partition()),
         "Invalid partition data from content file: expected = %s, actual = %s",
         spec.isPartitioned() ? "partitioned" : "unpartitioned",
         hasPartitionData(contentFile.partition()) ? "partitioned" : "unpartitioned");

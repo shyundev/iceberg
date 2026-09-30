@@ -238,6 +238,29 @@ public class TestContentFileParser {
   }
 
   @Test
+  void voidTransformPartition() throws Exception {
+    PartitionSpec spec = PartitionSpec.builderFor(TestBase.SCHEMA).alwaysNull("data").build();
+    DataFile dataFile =
+        new GenericDataFile(
+            spec.specId(),
+            "/path/to/data.parquet",
+            FileFormat.PARQUET,
+            new PartitionData(spec.partitionType()),
+            10L,
+            new Metrics(1L, null, null, null, null),
+            null,
+            null,
+            null,
+            null);
+
+    JsonNode jsonNode = JsonUtil.mapper().readTree(ContentFileParser.toJson(dataFile, spec));
+    ContentFile<?> deserializedContentFile =
+        ContentFileParser.fromJson(jsonNode, Map.of(spec.specId(), spec));
+
+    assertContentFileEquals(dataFile, deserializedContentFile, spec);
+  }
+
+  @Test
   public void testInvalidContentType() throws Exception {
     String jsonStr =
         "{\"spec-id\":0,"
