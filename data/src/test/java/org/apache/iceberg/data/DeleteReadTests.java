@@ -632,6 +632,51 @@ public abstract class DeleteReadTests {
     testEqualityDeletes(equalityDeletes, expected);
   }
 
+  @TestTemplate
+  public void equalityDeleteFixedColumn() throws IOException {
+    dropTable("test2");
+    Schema fixedSchema =
+        new Schema(
+            required(1, "id", Types.IntegerType.get()),
+            optional(2, "fixedData", Types.FixedType.ofLength(7)));
+    Table fixedTable = createTable("test2", fixedSchema, PartitionSpec.unpartitioned());
+
+    Record fixedRecord = GenericRecord.create(fixedTable.schema());
+    List<Record> fixedRecords = Lists.newArrayList();
+    for (int i = 0; i < 5; i++) {
+      fixedRecords.add(fixedRecord.copy("id", i, "fixedData", ("fixed_" + i).getBytes()));
+    }
+
+    DataFile fixedDataFile =
+        FileHelpers.writeDataFile(
+            fixedTable,
+            Files.localOutput(temp.resolve("junit" + System.nanoTime()).toFile()),
+            fixedRecords);
+    fixedTable.newAppend().appendFile(fixedDataFile).commit();
+
+    Schema deleteRowSchema = fixedTable.schema().select("fixedData");
+    Record fixedDelete = GenericRecord.create(deleteRowSchema);
+    List<Record> equalityDeletes =
+        Lists.newArrayList(
+            fixedDelete.copy("fixedData", "fixed_0".getBytes()),
+            fixedDelete.copy("fixedData", "fixed_1".getBytes()),
+            fixedDelete.copy("fixedData", "fixed_2".getBytes()));
+    DeleteFile eqDeletes =
+        FileHelpers.writeDeleteFile(
+            fixedTable,
+            Files.localOutput(temp.resolve("junit" + System.nanoTime()).toFile()),
+            equalityDeletes,
+            deleteRowSchema);
+    fixedTable.newRowDelta().addDeletes(eqDeletes).commit();
+
+    StructLikeSet expected = StructLikeSet.create(fixedTable.schema().select("id").asStruct());
+    expected.addAll(fixedRecords.subList(3, 5));
+    StructLikeSet actual = rowSet("test2", fixedTable, "id");
+
+    assertThat(actual).as("Table should contain expected rows").isEqualTo(expected);
+    checkDeleteCount(3L);
+  }
+
   private void testEqualityDeletes(List<Record> equalityDeletes, StructLikeSet expected)
       throws IOException {
     Preconditions.checkArgument(

@@ -69,10 +69,12 @@ public class TestGenericRecord {
             optional(
                 1,
                 "structData",
-                Types.StructType.of(required(100, "structInnerData", Types.StringType.get()))));
+                Types.StructType.of(required(100, "structInnerData", Types.StringType.get()))),
+            optional(2, "fixedData", Types.FixedType.ofLength(7)));
 
     GenericRecord original = GenericRecord.create(schema);
     original.setField("binaryData", ByteBuffer.wrap("binaryData_0".getBytes()));
+    original.setField("fixedData", "fixed_0".getBytes());
     Record structRecord = GenericRecord.create(schema.findType("structData").asStructType());
     structRecord.setField("structInnerData", "structInnerData_1");
     original.setField("structData", structRecord);
