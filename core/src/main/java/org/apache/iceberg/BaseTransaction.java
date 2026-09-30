@@ -70,6 +70,7 @@ public class BaseTransaction implements Transaction {
   private final Set<String> deletedFiles =
       Sets.newHashSet(); // keep track of files deleted in the most recent commit
   private final Consumer<String> enqueueDelete = deletedFiles::add;
+  private final Set<String> expiredFiles = Sets.newHashSet(); // deleted after the commit succeeds
   private final TransactionType type;
   private TableMetadata base;
   private TableMetadata current;
@@ -226,7 +227,7 @@ public class BaseTransaction implements Transaction {
 
   @Override
   public ExpireSnapshots expireSnapshots() {
-    return appendUpdate(new RemoveSnapshots(transactionOps));
+    return appendUpdate(new RemoveSnapshots(transactionOps)).deleteWith(expiredFiles::add);
   }
 
   @Override
@@ -292,6 +293,8 @@ public class BaseTransaction implements Transaction {
       // concern, it is safe to delete all the deleted files from individual operations
       deleteUncommittedFiles(deletedFiles);
     }
+
+    deleteExpiredFiles();
   }
 
   private void commitReplaceTransaction(boolean orCreate) {
@@ -345,6 +348,8 @@ public class BaseTransaction implements Transaction {
       // a concern, it is safe to delete all the deleted files from individual operations
       deleteUncommittedFiles(deletedFiles);
     }
+
+    deleteExpiredFiles();
   }
 
   private void commitSimpleTransaction() {
@@ -410,6 +415,8 @@ public class BaseTransaction implements Transaction {
     } catch (RuntimeException e) {
       LOG.warn("Failed to load committed metadata, skipping clean-up", e);
     }
+
+    deleteExpiredFiles();
   }
 
   protected void cleanUp() {
@@ -433,6 +440,10 @@ public class BaseTransaction implements Transaction {
 
   private void deleteUncommittedFiles(Iterable<String> paths) {
     CatalogUtil.deleteFiles(ops.io(), paths, "uncommitted");
+  }
+
+  private void deleteExpiredFiles() {
+    CatalogUtil.deleteFiles(ops.io(), expiredFiles, "expired");
   }
 
   private void applyUpdates(TableOperations underlyingOps) {

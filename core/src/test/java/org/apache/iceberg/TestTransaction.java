@@ -295,6 +295,29 @@ public class TestTransaction extends TestBase {
   }
 
   @TestTemplate
+  void expireSnapshotsKeepsFilesUntilTransactionCommits() {
+    table.updateProperties().set(TableProperties.COMMIT_NUM_RETRIES, "0").commit();
+
+    table.newFastAppend().appendFile(FILE_A).commit();
+    Snapshot firstSnapshot = table.currentSnapshot();
+    table.newFastAppend().appendFile(FILE_B).commit();
+
+    Transaction txn = table.newTransaction();
+    txn.expireSnapshots().expireSnapshotId(firstSnapshot.snapshotId()).commit();
+
+    assertThat(new File(firstSnapshot.manifestListLocation())).exists();
+
+    table.ops().failCommits(1);
+    assertThatThrownBy(txn::commitTransaction)
+        .isInstanceOf(CommitFailedException.class)
+        .hasMessage("Injected failure");
+
+    table.refresh();
+    assertThat(table.snapshot(firstSnapshot.snapshotId())).isNotNull();
+    assertThat(new File(firstSnapshot.manifestListLocation())).exists();
+  }
+
+  @TestTemplate
   public void testTransactionRetry() {
     // use only one retry
     table.updateProperties().set(TableProperties.COMMIT_NUM_RETRIES, "1").commit();
