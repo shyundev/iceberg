@@ -824,7 +824,7 @@ public class CatalogHandlers {
       IncrementalAppendScan incrementalScan =
           table
               .newIncrementalAppendScan()
-              .fromSnapshotInclusive(request.startSnapshotId())
+              .fromSnapshotExclusive(request.startSnapshotId())
               .toSnapshot(request.endSnapshotId());
 
       configuredScan = configureScan(incrementalScan, request);
