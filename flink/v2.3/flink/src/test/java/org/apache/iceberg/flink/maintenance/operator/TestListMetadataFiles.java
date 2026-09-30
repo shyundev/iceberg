@@ -46,7 +46,7 @@ class TestListMetadataFiles extends OperatorTestBase {
 
       List<String> tableMetadataFiles = testHarness.extractOutputValues();
       tableMetadataFiles.forEach(System.out::println);
-      assertThat(tableMetadataFiles).hasSize(24);
+      assertThat(tableMetadataFiles).hasSize(14);
 
       assertThat(testHarness.getSideOutput(TaskResultAggregator.ERROR_STREAM)).isNull();
     }
@@ -67,7 +67,7 @@ class TestListMetadataFiles extends OperatorTestBase {
       OperatorTestBase.trigger(testHarness);
 
       List<String> tableMetadataFiles = testHarness.extractOutputValues();
-      assertThat(tableMetadataFiles).hasSize(38);
+      assertThat(tableMetadataFiles).hasSize(20);
 
       assertThat(testHarness.getSideOutput(TaskResultAggregator.ERROR_STREAM)).isNull();
     }
@@ -84,7 +84,7 @@ class TestListMetadataFiles extends OperatorTestBase {
       OperatorTestBase.trigger(testHarness);
 
       List<String> tableMetadataFiles = testHarness.extractOutputValues();
-      assertThat(tableMetadataFiles).hasSize(0);
+      assertThat(tableMetadataFiles).hasSize(2);
 
       assertThat(testHarness.getSideOutput(TaskResultAggregator.ERROR_STREAM)).isNull();
     }
@@ -117,7 +117,7 @@ class TestListMetadataFiles extends OperatorTestBase {
         assertThat(tableMetadataFiles).contains(snapshot.manifestListLocation());
       }
       // Verify total count matches what 3 snapshots should produce
-      assertThat(tableMetadataFiles).hasSize(24);
+      assertThat(tableMetadataFiles).hasSize(14);
 
       assertThat(testHarness.getSideOutput(TaskResultAggregator.ERROR_STREAM)).isNull();
     }

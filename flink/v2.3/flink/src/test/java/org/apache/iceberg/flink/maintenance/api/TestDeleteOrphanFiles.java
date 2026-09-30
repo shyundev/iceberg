@@ -37,6 +37,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.stream.StreamSupport;
 import org.apache.flink.streaming.api.graph.StreamGraphGenerator;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Table;
@@ -200,6 +201,23 @@ class TestDeleteOrphanFiles extends MaintenanceTaskTestBase {
                     DELETE_FILE_SUCCEEDED_COUNTER),
                 2L)
             .build());
+  }
+
+  @Test
+  void deleteOrphanFilesKeepsMetadataOfTableWithoutSnapshots() throws Exception {
+    Table table = createTable();
+    String metadataLocation =
+        ((HasTableOperations) table).operations().current().metadataFileLocation();
+
+    Path inData = relative(table, "metadata/in_data");
+    createFiles(inData);
+
+    appendDeleteOrphanFiles();
+
+    runAndWaitForSuccess(
+        infra.env(), infra.source(), infra.sink(), () -> checkDeleteFinished(table.name(), 1L));
+    assertThat(inData).doesNotExist();
+    assertThat(table.io().newInputFile(metadataLocation).exists()).isTrue();
   }
 
   @Test

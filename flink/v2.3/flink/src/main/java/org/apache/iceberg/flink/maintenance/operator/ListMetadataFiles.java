@@ -67,18 +67,19 @@ public class ListMetadataFiles extends ProcessFunction<Trigger, String> {
       throws Exception {
     try {
       table.refresh();
+      // Snapshot JSONs
+      ReachableFileUtil.metadataFileLocations(table, false).forEach(collector::collect);
+      // Statistics files
+      ReachableFileUtil.statisticsFilesLocations(table).forEach(collector::collect);
+      // Version hint file for Hadoop catalogs
+      collector.collect(ReachableFileUtil.versionHintLocation(table));
+
       table
           .snapshots()
           .forEach(
               snapshot -> {
                 // Manifest lists
                 collector.collect(snapshot.manifestListLocation());
-                // Snapshot JSONs
-                ReachableFileUtil.metadataFileLocations(table, false).forEach(collector::collect);
-                // Statistics files
-                ReachableFileUtil.statisticsFilesLocations(table).forEach(collector::collect);
-                // Version hint file for Hadoop catalogs
-                collector.collect(ReachableFileUtil.versionHintLocation(table));
 
                 // Emit the manifest file locations
                 snapshot.allManifests(table.io()).stream()
