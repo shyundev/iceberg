@@ -203,6 +203,26 @@ class TestDeleteOrphanFiles extends MaintenanceTaskTestBase {
   }
 
   @Test
+  void deleteOrphanFilesWithEscapedCharactersInPath() throws Exception {
+    Table table = createTable();
+    insert(table, 1, "a");
+    insert(table, 2, "b");
+
+    // Iceberg URL-encodes partition values, so a partition value "a/b" is written under data=a%2Fb
+    Path inEncodedPartition = relative(table, "data/data=a%2Fb/in_data");
+    Path withSpace = relative(table, "metadata/in data");
+    Files.createDirectories(inEncodedPartition.getParent());
+    createFiles(inEncodedPartition, withSpace);
+
+    appendDeleteOrphanFiles();
+
+    runAndWaitForSuccess(
+        infra.env(), infra.source(), infra.sink(), () -> checkDeleteFinished(table.name(), 2L));
+    assertThat(inEncodedPartition).doesNotExist();
+    assertThat(withSpace).doesNotExist();
+  }
+
+  @Test
   void testDeleteOrphanFilesFailure() throws Exception {
     Table table = createTable();
     insert(table, 1, "a");

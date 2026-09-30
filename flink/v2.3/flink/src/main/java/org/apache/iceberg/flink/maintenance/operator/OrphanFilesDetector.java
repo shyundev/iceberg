@@ -122,10 +122,7 @@ public class OrphanFilesDetector extends KeyedCoProcessFunction<String, String, 
 
     if (foundInFileSystem.value() != null) {
       if (foundInTablesList.isEmpty()) {
-        FileURI fileURI =
-            new FileURI(
-                new Path(foundInFileSystem.value()).toUri(), equalSchemes, equalAuthorities);
-        out.collect(fileURI.getUriAsString());
+        out.collect(foundInFileSystem.value());
       } else {
         FileURI actual =
             new FileURI(
