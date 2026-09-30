@@ -25,7 +25,6 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
 import java.time.Duration;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.iceberg.catalog.Catalog;
@@ -33,7 +32,6 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
-import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,7 +43,6 @@ import org.slf4j.LoggerFactory;
  */
 public class CachingCatalog implements Catalog {
   private static final Logger LOG = LoggerFactory.getLogger(CachingCatalog.class);
-  private static final MetadataTableType[] METADATA_TABLE_TYPE_VALUES = MetadataTableType.values();
 
   public static Catalog wrap(Catalog catalog) {
     return wrap(catalog, CatalogProperties.CACHE_EXPIRATION_INTERVAL_MS_OFF);
@@ -97,7 +94,7 @@ public class CachingCatalog implements Catalog {
       LOG.debug("Evicted {} from the table cache ({})", tableIdentifier, cause);
       if (RemovalCause.EXPIRED.equals(cause)
           && !MetadataTableUtils.hasMetadataTableName(tableIdentifier)) {
-        tableCache.invalidateAll(metadataTableIdentifiers(tableIdentifier));
+        invalidateMetadataTables(tableIdentifier);
       }
     }
   }
@@ -186,7 +183,7 @@ public class CachingCatalog implements Catalog {
     catalog.invalidateTable(ident);
     TableIdentifier canonicalized = canonicalizeIdentifier(ident);
     tableCache.invalidate(canonicalized);
-    tableCache.invalidateAll(metadataTableIdentifiers(canonicalized));
+    invalidateMetadataTables(canonicalized);
   }
 
   @Override
@@ -204,16 +201,15 @@ public class CachingCatalog implements Catalog {
     return table;
   }
 
-  private Iterable<TableIdentifier> metadataTableIdentifiers(TableIdentifier ident) {
-    ImmutableList.Builder<TableIdentifier> builder = ImmutableList.builder();
-
-    for (MetadataTableType type : METADATA_TABLE_TYPE_VALUES) {
-      // metadata table resolution is case insensitive right now
-      builder.add(TableIdentifier.parse(ident + "." + type.name()));
-      builder.add(TableIdentifier.parse(ident + "." + type.name().toLowerCase(Locale.ROOT)));
-    }
-
-    return builder.build();
+  private void invalidateMetadataTables(TableIdentifier ident) {
+    tableCache
+        .asMap()
+        .keySet()
+        .removeIf(
+            key ->
+                MetadataTableUtils.hasMetadataTableName(key)
+                    && !key.namespace().isEmpty()
+                    && TableIdentifier.of(key.namespace().levels()).equals(ident));
   }
 
   @Override

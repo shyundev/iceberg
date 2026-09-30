@@ -49,6 +49,8 @@ import org.apache.iceberg.util.FakeTicker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 public class TestCachingCatalog extends HadoopTableTestBase {
 
@@ -149,6 +151,26 @@ public class TestCachingCatalog extends HadoopTableTestBase {
           .as("Snapshot must be new")
           .isEqualTo(newSnapshot);
     }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"tbl, Snapshots", "t.bl, snapshots"})
+  void dropTableInvalidatesMetadataTable(String tableName, String metadataTableName)
+      throws IOException {
+    Catalog catalog = CachingCatalog.wrap(hadoopCatalog());
+    TableIdentifier tableIdent = TableIdentifier.of("db", tableName);
+    TableIdentifier metadataIdent =
+        TableIdentifier.of(Namespace.of("db", tableName), metadataTableName);
+
+    catalog.createTable(tableIdent, SCHEMA, SPEC).newAppend().appendFile(FILE_A).commit();
+    catalog.loadTable(metadataIdent);
+
+    catalog.dropTable(tableIdent);
+    Table table = catalog.createTable(tableIdent, SCHEMA, SPEC);
+    table.newAppend().appendFile(FILE_B).commit();
+
+    assertThat(catalog.loadTable(metadataIdent).currentSnapshot())
+        .isEqualTo(table.currentSnapshot());
   }
 
   @Test
