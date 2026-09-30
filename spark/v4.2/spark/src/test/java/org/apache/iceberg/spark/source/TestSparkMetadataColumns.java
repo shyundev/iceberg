@@ -57,6 +57,7 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.spark.TestBase;
+import org.apache.iceberg.spark.actions.SparkActions;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.AnalysisException;
 import org.apache.spark.sql.Dataset;
@@ -341,6 +342,53 @@ public class TestSparkMetadataColumns extends TestBase {
           .hasMessageContaining(
               "A column, variable, or function parameter with name `_last_updated_sequence_number` cannot be resolved");
     }
+  }
+
+  @TestTemplate
+  void rowLineageOfRowsInOneFile() {
+    assumeThat(formatVersion).isGreaterThanOrEqualTo(3);
+
+    sql(
+        "INSERT INTO TABLE %s SELECT /*+ COALESCE(1) */ * FROM VALUES "
+            + "(1L, 'a1', 'b1'), (2L, 'a2', 'b2'), (3L, 'a3', 'b3')",
+        TABLE_NAME);
+
+    assertEquals(
+        "Rows must match",
+        ImmutableList.of(row(1L, 0L, 1L), row(2L, 1L, 1L), row(3L, 2L, 1L)),
+        sql("SELECT id, _row_id, _last_updated_sequence_number FROM %s ORDER BY id", TABLE_NAME));
+  }
+
+  @TestTemplate
+  void rowLineageAfterCompaction() {
+    assumeThat(formatVersion).isGreaterThanOrEqualTo(3);
+
+    sql(
+        "INSERT INTO TABLE %s SELECT /*+ COALESCE(1) */ * FROM VALUES "
+            + "(1L, 'a1', 'b1'), (2L, 'a2', 'b2'), (3L, 'a3', 'b3')",
+        TABLE_NAME);
+    sql(
+        "INSERT INTO TABLE %s SELECT /*+ COALESCE(1) */ * FROM VALUES "
+            + "(4L, 'a4', 'b4'), (5L, 'a5', 'b5'), (6L, 'a6', 'b6')",
+        TABLE_NAME);
+    table.refresh();
+    SparkActions.get().rewriteDataFiles(table).option("rewrite-all", "true").execute();
+    table.refresh();
+    table
+        .updateProperties()
+        .set(ORC_VECTORIZATION_ENABLED, "false")
+        .set(PARQUET_VECTORIZATION_ENABLED, "false")
+        .commit();
+    assertEquals(
+        "Rows must match",
+        ImmutableList.of(
+            row(1L, 0L, 1L),
+            row(2L, 1L, 1L),
+            row(3L, 2L, 1L),
+            row(4L, 3L, 2L),
+            row(5L, 4L, 2L),
+            row(6L, 5L, 2L)),
+        sql("SELECT id, _row_id, _last_updated_sequence_number FROM %s ORDER BY id", TABLE_NAME));
   }
 
   @TestTemplate
