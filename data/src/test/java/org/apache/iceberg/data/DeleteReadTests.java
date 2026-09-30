@@ -23,6 +23,7 @@ import static org.apache.iceberg.types.Types.NestedField.required;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assumptions.assumeThat;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
@@ -39,6 +40,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TestHelpers.Row;
+import org.apache.iceberg.deletes.EqualityDeleteWriter;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
@@ -630,6 +632,73 @@ public abstract class DeleteReadTests {
             structDataDelete.copy("structData", structRecord2));
     StructLikeSet expected = rowSetWithoutIds(table, records, 200, 201, 202);
     testEqualityDeletes(equalityDeletes, expected);
+  }
+
+  @TestTemplate
+  public void equalityDeleteNestedFieldNotProjected() throws IOException {
+    dropTable("test2");
+    Schema nestedSchema =
+        new Schema(
+            required(1, "id", Types.IntegerType.get()),
+            optional(
+                2,
+                "structData",
+                Types.StructType.of(
+                    optional(3, "key", Types.IntegerType.get()),
+                    optional(4, "value", Types.StringType.get()))));
+    Table nestedTable = createTable("test2", nestedSchema, PartitionSpec.unpartitioned());
+    Types.StructType structType = nestedTable.schema().findType("structData").asStructType();
+
+    Record nestedRecord = GenericRecord.create(nestedTable.schema());
+    List<Record> nestedRecords = Lists.newArrayList();
+    for (int i = 0; i < 5; i++) {
+      Record struct = GenericRecord.create(structType);
+      struct.setField("key", i);
+      struct.setField("value", "value_" + i);
+      nestedRecords.add(nestedRecord.copy("id", i, "structData", struct));
+    }
+
+    DataFile nestedDataFile =
+        FileHelpers.writeDataFile(
+            nestedTable,
+            Files.localOutput(temp.resolve("junit" + System.nanoTime()).toFile()),
+            nestedRecords);
+    nestedTable.newAppend().appendFile(nestedDataFile).commit();
+
+    Schema deleteRowSchema = nestedTable.schema().select("structData.key");
+    Record deleteStruct =
+        GenericRecord.create(deleteRowSchema.findType("structData").asStructType());
+    deleteStruct.setField("key", 2);
+    Record delete = GenericRecord.create(deleteRowSchema);
+    delete.setField("structData", deleteStruct);
+
+    int keyId = nestedTable.schema().findField("structData.key").fieldId();
+    EqualityDeleteWriter<Record> writer =
+        GenericFileWriterFactory.builderFor(nestedTable)
+            .equalityDeleteRowSchema(deleteRowSchema)
+            .equalityFieldIds(new int[] {keyId})
+            .build()
+            .newEqualityDeleteWriter(
+                FileHelpers.encrypt(
+                    Files.localOutput(temp.resolve("junit" + System.nanoTime()).toFile())),
+                nestedTable.spec(),
+                null);
+    try (Closeable toClose = writer) {
+      writer.write(delete);
+    }
+
+    nestedTable.newRowDelta().addDeletes(writer.toDeleteFile()).commit();
+
+    StructLikeSet expected = StructLikeSet.create(nestedTable.schema().select("id").asStruct());
+    for (Record record : nestedRecords) {
+      if ((int) record.getField("id") != 2) {
+        expected.add(record);
+      }
+    }
+
+    StructLikeSet actual = rowSet("test2", nestedTable, "id");
+
+    assertThat(actual).as("Table should contain expected rows").isEqualTo(expected);
   }
 
   private void testEqualityDeletes(List<Record> equalityDeletes, StructLikeSet expected)
