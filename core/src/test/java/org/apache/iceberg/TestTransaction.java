@@ -295,6 +295,84 @@ public class TestTransaction extends TestBase {
   }
 
   @TestTemplate
+  void retriedTransactionSequencesEarlierAppendAfterConcurrentCommit() {
+    assumeThat(formatVersion).isGreaterThanOrEqualTo(2);
+
+    table.newFastAppend().appendFile(FILE_A).commit();
+
+    Transaction txn = table.newTransaction();
+    txn.newFastAppend().appendFile(FILE_B).commit();
+    txn.newDelete().deleteFile(FILE_A).commit();
+
+    table.newFastAppend().appendFile(FILE_C).commit();
+
+    txn.commitTransaction();
+
+    Snapshot deleteSnapshot = table.currentSnapshot();
+    Snapshot appendSnapshot = table.snapshot(deleteSnapshot.parentId());
+    DataFile fileB = liveDataFile(FILE_B.location());
+    DataFile fileC = liveDataFile(FILE_C.location());
+
+    assertThat(fileB.dataSequenceNumber()).isEqualTo(appendSnapshot.sequenceNumber());
+    assertThat(fileB.fileSequenceNumber()).isEqualTo(appendSnapshot.sequenceNumber());
+    if (formatVersion >= 3) {
+      assertThat(fileB.firstRowId()).isEqualTo(appendSnapshot.firstRowId());
+      assertThat(fileB.firstRowId())
+          .isGreaterThanOrEqualTo(fileC.firstRowId() + fileC.recordCount());
+    }
+  }
+
+  @TestTemplate
+  void retriedTransactionDoesNotApplyEarlierEqualityDeletesToItsAppend() {
+    assumeThat(formatVersion).isGreaterThanOrEqualTo(2);
+
+    table.newFastAppend().appendFile(FILE_A).commit();
+
+    Transaction txn = table.newTransaction();
+    txn.newFastAppend().appendFile(FILE_B).commit();
+    txn.newDelete().deleteFile(FILE_A).commit();
+
+    table.newFastAppend().appendFile(FILE_C).commit();
+    table.newRowDelta().addDeletes(FILE_B_EQUALITY_DELETES).commit();
+
+    txn.commitTransaction();
+
+    FileScanTask taskB =
+        Iterables.getOnlyElement(
+            Iterables.filter(
+                table.newScan().planFiles(),
+                task -> task.file().location().equals(FILE_B.location())));
+    assertThat(taskB.deletes()).isEmpty();
+  }
+
+  @TestTemplate
+  void retriedTransactionSequencesFilteredManifestOfEarlierAppend() {
+    assumeThat(formatVersion).isGreaterThanOrEqualTo(2);
+
+    table.newFastAppend().appendFile(FILE_A).commit();
+
+    Transaction txn = table.newTransaction();
+    txn.newFastAppend().appendFile(FILE_B).appendFile(FILE_D).commit();
+    txn.newDelete().deleteFile(FILE_D).commit();
+
+    table.newFastAppend().appendFile(FILE_C).commit();
+
+    txn.commitTransaction();
+
+    Snapshot deleteSnapshot = table.currentSnapshot();
+    Snapshot appendSnapshot = table.snapshot(deleteSnapshot.parentId());
+    DataFile fileB = liveDataFile(FILE_B.location());
+    assertThat(fileB.dataSequenceNumber()).isEqualTo(appendSnapshot.sequenceNumber());
+  }
+
+  private DataFile liveDataFile(String location) {
+    return Iterables.getOnlyElement(
+        Iterables.filter(
+            Iterables.transform(table.newScan().planFiles(), FileScanTask::file),
+            file -> file.location().equals(location)));
+  }
+
+  @TestTemplate
   public void testTransactionRetry() {
     // use only one retry
     table.updateProperties().set(TableProperties.COMMIT_NUM_RETRIES, "1").commit();
