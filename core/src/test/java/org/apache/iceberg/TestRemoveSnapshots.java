@@ -2174,6 +2174,32 @@ public class TestRemoveSnapshots extends TestBase {
     assertThat(actual).isEqualTo(expected);
   }
 
+  @TestTemplate
+  void expireKeepsPuffinFileWithLiveDV() {
+    assumeThat(formatVersion)
+        .as("Deletion vectors are only supported in V3 and later")
+        .isGreaterThanOrEqualTo(3);
+
+    table.newFastAppend().appendFile(FILE_A).appendFile(FILE_A2).commit();
+
+    DeleteFile fileA2DV =
+        FileMetadata.deleteFileBuilder(SPEC)
+            .copy(FILE_A_DV)
+            .withReferencedDataFile(FILE_A2.location())
+            .withContentOffset(FILE_A_DV.contentOffset() + FILE_A_DV.contentSizeInBytes())
+            .build();
+    table.newRowDelta().addDeletes(FILE_A_DV).addDeletes(fileA2DV).commit();
+
+    table.newDelete().deleteFile(FILE_A).commit();
+    table.newFastAppend().appendFile(FILE_B).commit();
+    long tAfterCommits = waitUntilAfter(table.currentSnapshot().timestampMillis());
+
+    Set<String> deletedFiles = Sets.newHashSet();
+    removeSnapshots(table).expireOlderThan(tAfterCommits).deleteWith(deletedFiles::add).commit();
+
+    assertThat(deletedFiles).contains(FILE_A.location()).doesNotContain(fileA2DV.location());
+  }
+
   private StatisticsFile writeStatsFile(
       long snapshotId, long snapshotSequenceNumber, String statsLocation, FileIO fileIO)
       throws IOException {
