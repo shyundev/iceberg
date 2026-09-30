@@ -21,14 +21,26 @@ package org.apache.iceberg;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.File;
 import org.apache.iceberg.expressions.ExpressionUtil;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.ResidualEvaluator;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 public class TestFileScanTaskParser {
+  @TempDir private File tableDir;
+
+  @AfterEach
+  public void cleanupTables() {
+    TestTables.clearTables();
+  }
+
   @Test
   public void testNullArguments() {
     assertThatThrownBy(() -> ScanTaskParser.toJson(null))
@@ -165,5 +177,37 @@ public class TestFileScanTaskParser {
                 expected.residual(), actual.residual(), TestBase.SCHEMA.asStruct(), caseSensitive))
         .as("Residual expression should match")
         .isTrue();
+  }
+
+  @Test
+  void globalEqualityDeleteFromUnpartitionedSpec() throws Exception {
+    TestTables.TestTable table =
+        TestTables.create(tableDir, "test", TestBase.SCHEMA, TestBase.SPEC, 2);
+    table.newAppend().appendFile(TestBase.FILE_A).commit();
+    table.updateSpec().removeField("data_bucket").commit();
+
+    DeleteFile globalDeletes =
+        FileMetadata.deleteFileBuilder(table.spec())
+            .ofEqualityDeletes(table.schema().findField("id").fieldId())
+            .withPath("/path/to/global-eq-deletes.parquet")
+            .withFileSizeInBytes(10)
+            .withRecordCount(1)
+            .build();
+    table.newRowDelta().addDeletes(globalDeletes).commit();
+
+    FileScanTask task;
+    try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+      task = Iterables.getOnlyElement(tasks);
+    }
+
+    assertThat(task.deletes())
+        .extracting(ContentFile::location)
+        .containsExactly(globalDeletes.location());
+
+    FileScanTask deserializedTask = ScanTaskParser.fromJson(ScanTaskParser.toJson(task), true);
+
+    assertThat(deserializedTask.deletes())
+        .extracting(ContentFile::location)
+        .containsExactly(globalDeletes.location());
   }
 }
