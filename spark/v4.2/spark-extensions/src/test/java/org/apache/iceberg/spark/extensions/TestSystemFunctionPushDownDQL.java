@@ -18,6 +18,7 @@
  */
 package org.apache.iceberg.spark.extensions;
 
+import static org.apache.iceberg.expressions.Expressions.and;
 import static org.apache.iceberg.expressions.Expressions.bucket;
 import static org.apache.iceberg.expressions.Expressions.day;
 import static org.apache.iceberg.expressions.Expressions.equal;
@@ -28,6 +29,7 @@ import static org.apache.iceberg.expressions.Expressions.lessThan;
 import static org.apache.iceberg.expressions.Expressions.lessThanOrEqual;
 import static org.apache.iceberg.expressions.Expressions.month;
 import static org.apache.iceberg.expressions.Expressions.notEqual;
+import static org.apache.iceberg.expressions.Expressions.notNull;
 import static org.apache.iceberg.expressions.Expressions.truncate;
 import static org.apache.iceberg.expressions.Expressions.year;
 import static org.apache.iceberg.spark.SystemFunctionPushDownHelper.STRUCT;
@@ -245,7 +247,8 @@ public class TestSystemFunctionPushDownDQL extends ExtensionsTestBase {
     LogicalPlan optimizedPlan = df.queryExecution().optimizedPlan();
 
     checkExpressions(optimizedPlan, partitioned, "bucket");
-    checkPushedFilters(optimizedPlan, notEqual(bucket("data", 5), target));
+    checkPushedFilters(
+        optimizedPlan, and(notNull(bucket("data", 5)), notEqual(bucket("data", 5), target)));
 
     List<Object[]> actual = rowsToJava(df.collectAsList());
     assertThat(actual).hasSize(8);

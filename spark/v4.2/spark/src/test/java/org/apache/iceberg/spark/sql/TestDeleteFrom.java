@@ -109,6 +109,19 @@ public class TestDeleteFrom extends CatalogTestBase {
   }
 
   @TestTemplate
+  void deleteWithNotEqualKeepsNullRows() {
+    sql("CREATE TABLE %s (id bigint, data string) USING iceberg %s", tableName, tableProperties());
+    sql("INSERT INTO %s VALUES (1, 'a'), (2, null)", tableName);
+
+    sql("DELETE FROM %s WHERE data != 'b'", tableName);
+
+    assertEquals(
+        "Should keep the row with a null value",
+        ImmutableList.of(row(2L, null)),
+        sql("SELECT * FROM %s ORDER BY id", tableName));
+  }
+
+  @TestTemplate
   public void testDeleteFromTableAtSnapshot() throws NoSuchTableException {
     sql("CREATE TABLE %s (id bigint, data string) USING iceberg %s", tableName, tableProperties());
 

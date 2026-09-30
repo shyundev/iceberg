@@ -750,7 +750,7 @@ public class TestFilterPushDown extends TestBaseWithCatalog {
 
     checkOnlyIcebergFilters(
         "salary != double('NaN')" /* query predicate */,
-        "salary IS NOT NULL, NOT (is_nan(salary))" /* Iceberg scan filters */,
+        "salary IS NOT NULL, (salary IS NOT NULL AND not_nan(salary))" /* Iceberg scan filters */,
         ImmutableList.of(
             row(1, 100.5), row(3, Double.POSITIVE_INFINITY), row(4, Double.NEGATIVE_INFINITY)));
 

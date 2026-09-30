@@ -230,7 +230,10 @@ public class SparkV2Filters {
               "Expression is always false (notEq is not null-safe): %s",
               predicate);
 
-          return handleNotEqual(notEqChildren.first(), notEqChildren.second());
+          // col <> 1 in Spark is equal to notNull(col) && notEq(col, 1) in Iceberg
+          return and(
+              notNull(notEqChildren.first()),
+              handleNotEqual(notEqChildren.first(), notEqChildren.second()));
 
         case IN:
           if (isSupportedInPredicate(predicate)) {
@@ -270,6 +273,8 @@ public class SparkV2Filters {
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList()));
             return and(notNull(term), notIn);
+          } else if (childPredicate.name().equals(EQ)) {
+            return convert(new Predicate(NOT_EQ, childPredicate.children()));
           } else if (hasNoInFilter(childPredicate)) {
             Expression child = convert(childPredicate);
             if (child != null) {

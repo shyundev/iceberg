@@ -183,7 +183,8 @@ public class TestSparkV2Filters {
               .isEqualTo(expectedEq2.toString());
 
           Predicate notEq1 = new Predicate("<>", attrAndValue);
-          Expression expectedNotEq1 = Expressions.notEqual(unquoted, 1);
+          Expression expectedNotEq1 =
+              Expressions.and(Expressions.notNull(unquoted), Expressions.notEqual(unquoted, 1));
           Expression actualNotEq1 = SparkV2Filters.convert(notEq1);
           assertThat(actualNotEq1)
               .asString()
@@ -191,7 +192,8 @@ public class TestSparkV2Filters {
               .isEqualTo(expectedNotEq1.toString());
 
           Predicate notEq2 = new Predicate("<>", valueAndAttr);
-          Expression expectedNotEq2 = Expressions.notEqual(unquoted, 1);
+          Expression expectedNotEq2 =
+              Expressions.and(Expressions.notNull(unquoted), Expressions.notEqual(unquoted, 1));
           Expression actualNotEq2 = SparkV2Filters.convert(notEq2);
           assertThat(actualNotEq2)
               .asString()
@@ -347,7 +349,8 @@ public class TestSparkV2Filters {
         new org.apache.spark.sql.connector.expressions.Expression[] {value, namedReference};
 
     Predicate notEqNaN1 = new Predicate("<>", attrAndValue);
-    Expression expectedNotEqNaN = Expressions.notNaN(col);
+    Expression expectedNotEqNaN =
+        Expressions.and(Expressions.notNull(col), Expressions.notNaN(col));
     Expression actualNotEqNaN1 = SparkV2Filters.convert(notEqNaN1);
     assertThat(actualNotEqNaN1.toString()).isEqualTo(expectedNotEqNaN.toString());
 
@@ -374,6 +377,21 @@ public class TestSparkV2Filters {
     Expression expectedIn = Expressions.in(col, "value1", "value2");
     Expression actualIn = SparkV2Filters.convert(in);
     assertEquals(expectedIn, actualIn);
+  }
+
+  @Test
+  void notEqualToDoesNotMatchNulls() {
+    String col = "intCol";
+    NamedReference namedReference = FieldReference.apply(col);
+    LiteralValue value = new LiteralValue(1, DataTypes.IntegerType);
+
+    Predicate notEq = new Not(new Predicate("=", expressions(namedReference, value)));
+    assertEquals(
+        Expressions.and(Expressions.notNull(col), Expressions.notEqual(col, 1)),
+        SparkV2Filters.convert(notEq));
+
+    Predicate notEqNullSafe = new Not(new Predicate("<=>", expressions(namedReference, value)));
+    assertEquals(Expressions.notEqual(col, 1), SparkV2Filters.convert(notEqNullSafe));
   }
 
   @Test
@@ -742,12 +760,16 @@ public class TestSparkV2Filters {
     assertEquals(expectedEq2, actualEq2);
 
     Predicate notEq1 = new Predicate("<>", attrAndValue);
-    Expression expectedNotEq1 = Expressions.notEqual(expectedTerm, value);
+    Expression expectedNotEq1 =
+        Expressions.and(
+            Expressions.notNull(expectedTerm), Expressions.notEqual(expectedTerm, value));
     Expression actualNotEq1 = SparkV2Filters.convert(notEq1);
     assertEquals(expectedNotEq1, actualNotEq1);
 
     Predicate notEq2 = new Predicate("<>", valueAndAttr);
-    Expression expectedNotEq2 = Expressions.notEqual(expectedTerm, value);
+    Expression expectedNotEq2 =
+        Expressions.and(
+            Expressions.notNull(expectedTerm), Expressions.notEqual(expectedTerm, value));
     Expression actualNotEq2 = SparkV2Filters.convert(notEq2);
     assertEquals(expectedNotEq2, actualNotEq2);
 
