@@ -290,6 +290,28 @@ public class TestFileSystemWalker {
   }
 
   @Test
+  void listDirRecursivelyWithFileIOFiltersHiddenDirWithUnnormalizedBaseDir() {
+    assertThat(
+            listWithMockFileIO(
+                "s3://bucket/table/",
+                new FileInfo("s3://bucket/table/data/a.parquet", 1L, 0L),
+                new FileInfo("s3://bucket/table/_temporary/b.parquet", 1L, 0L)))
+        .containsExactly("s3://bucket/table/data/a.parquet");
+    assertThat(
+            listWithMockFileIO(
+                "s3://bucket/warehouse//table",
+                new FileInfo("s3://bucket/warehouse//table/data/a.parquet", 1L, 0L),
+                new FileInfo("s3://bucket/warehouse//table/data/_temporary/b.parquet", 1L, 0L)))
+        .containsExactly("s3://bucket/warehouse//table/data/a.parquet");
+    assertThat(
+            listWithMockFileIO(
+                "hdfs:///warehouse/table",
+                new FileInfo("hdfs://namenode:8020/warehouse/table/data/a.parquet", 1L, 0L),
+                new FileInfo("hdfs://namenode:8020/warehouse/table/_temporary/b.parquet", 1L, 0L)))
+        .containsExactly("hdfs://namenode:8020/warehouse/table/data/a.parquet");
+  }
+
+  @Test
   public void testListDirRecursivelyWithFileIONullFileLocation() {
     assertThatThrownBy(
             () ->
