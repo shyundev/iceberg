@@ -29,6 +29,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
@@ -630,6 +631,49 @@ public abstract class DeleteReadTests {
             structDataDelete.copy("structData", structRecord2));
     StructLikeSet expected = rowSetWithoutIds(table, records, 200, 201, 202);
     testEqualityDeletes(equalityDeletes, expected);
+  }
+
+  @TestTemplate
+  public void equalityDeleteUuidColumn() throws IOException {
+    dropTable("test2");
+    Schema uuidSchema =
+        new Schema(
+            required(1, "id", Types.IntegerType.get()),
+            optional(2, "uuidData", Types.UUIDType.get()));
+    Table uuidTable = createTable("test2", uuidSchema, PartitionSpec.unpartitioned());
+
+    Record uuidRecord = GenericRecord.create(uuidTable.schema());
+    List<Record> uuidRecords =
+        Lists.newArrayList(
+            uuidRecord.copy(
+                "id", 0, "uuidData", UUID.fromString("00000000-0000-0000-0000-000000000001")),
+            uuidRecord.copy(
+                "id", 1, "uuidData", UUID.fromString("90000000-0000-0000-0000-000000000002")));
+
+    DataFile uuidDataFile =
+        FileHelpers.writeDataFile(
+            uuidTable,
+            Files.localOutput(temp.resolve("junit" + System.nanoTime()).toFile()),
+            uuidRecords);
+    uuidTable.newAppend().appendFile(uuidDataFile).commit();
+
+    Schema deleteRowSchema = uuidTable.schema().select("uuidData");
+    Record uuidDelete = GenericRecord.create(deleteRowSchema);
+    DeleteFile eqDeletes =
+        FileHelpers.writeDeleteFile(
+            uuidTable,
+            Files.localOutput(temp.resolve("junit" + System.nanoTime()).toFile()),
+            Lists.newArrayList(
+                uuidDelete.copy(
+                    "uuidData", UUID.fromString("90000000-0000-0000-0000-000000000002"))),
+            deleteRowSchema);
+    uuidTable.newRowDelta().addDeletes(eqDeletes).commit();
+
+    StructLikeSet expected = StructLikeSet.create(uuidTable.schema().select("id").asStruct());
+    expected.add(uuidRecords.get(0));
+    StructLikeSet actual = rowSet("test2", uuidTable, "id");
+
+    assertThat(actual).as("Table should contain expected rows").isEqualTo(expected);
   }
 
   private void testEqualityDeletes(List<Record> equalityDeletes, StructLikeSet expected)
