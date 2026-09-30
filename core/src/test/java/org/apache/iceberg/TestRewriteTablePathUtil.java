@@ -540,6 +540,43 @@ public class TestRewriteTablePathUtil extends TestBase {
   }
 
   @TestTemplate
+  void rewriteManifestListOfSnapshotBeforeUpgradeToV3() throws IOException {
+    assumeThat(formatVersion).isLessThan(3);
+
+    table.newFastAppend().appendFile(FILE_A).commit();
+    Snapshot beforeUpgrade = table.currentSnapshot();
+    table.updateProperties().set(TableProperties.FORMAT_VERSION, "3").commit();
+    table.newFastAppend().appendFile(FILE_B).commit();
+
+    String manifestPath = beforeUpgrade.allManifests(table.io()).get(0).path();
+    String sourcePrefix = manifestPath.substring(0, manifestPath.lastIndexOf("/metadata/"));
+    String targetPrefix = sourcePrefix + "/relocated";
+    String stagingDir = temp.resolve("staging").toString();
+    String outputPath = temp.resolve("rewritten-list-" + System.nanoTime() + ".avro").toString();
+
+    RewriteTablePathUtil.rewriteManifestList(
+        beforeUpgrade,
+        table.io(),
+        table.ops().current(),
+        ImmutableMap.of(),
+        sourcePrefix,
+        targetPrefix,
+        stagingDir,
+        outputPath);
+
+    List<ManifestFile> rewritten = ManifestLists.read(table.io().newInputFile(outputPath));
+    assertThat(rewritten)
+        .singleElement()
+        .satisfies(
+            manifest -> {
+              assertThat(manifest.path())
+                  .isEqualTo(
+                      RewriteTablePathUtil.newPath(manifestPath, sourcePrefix, targetPrefix));
+              assertThat(manifest.firstRowId()).isNull();
+            });
+  }
+
+  @TestTemplate
   public void testRewriteDataManifestRecordsRewrittenLength() throws IOException {
     table.newFastAppend().appendFile(FILE_A).appendFile(FILE_B).commit();
     ManifestFile manifest = table.currentSnapshot().allManifests(table.io()).get(0);

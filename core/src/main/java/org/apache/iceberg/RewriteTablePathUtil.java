@@ -316,9 +316,15 @@ public class RewriteTablePathUtil {
             ? ((EncryptingFileIO) io).encryptionManager()
             : PlaintextEncryptionManager.instance();
 
+    // a snapshot without first-row-id (added before v3) gets a manifest list without row IDs
+    int formatVersion =
+        snapshot.firstRowId() != null
+            ? tableMetadata.formatVersion()
+            : Math.min(tableMetadata.formatVersion(), 2);
+
     try (FileAppender<ManifestFile> writer =
         ManifestLists.write(
-            tableMetadata.formatVersion(),
+            formatVersion,
             outputFile,
             encryptionManager,
             snapshot.snapshotId(),
