@@ -48,6 +48,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class TestHiveViewCatalog extends ViewCatalogTests<HiveCatalog> {
 
@@ -298,6 +300,23 @@ public class TestHiveViewCatalog extends ViewCatalogTests<HiveCatalog> {
     assertThatThrownBy(() -> catalog.renameView(validFrom, invalidTo))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Invalid identifier: " + invalidTo);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void dropTableDoesNotDropView(boolean purge) {
+    Namespace ns = Namespace.of("hivedb");
+    TableIdentifier identifier = TableIdentifier.of(ns, "view");
+    catalog.createNamespace(ns);
+    catalog
+        .buildView(identifier)
+        .withSchema(SCHEMA)
+        .withDefaultNamespace(ns)
+        .withQuery("hive", "select * from hivedb.tbl")
+        .create();
+
+    assertThat(catalog.dropTable(identifier, purge)).isFalse();
+    assertThat(catalog.viewExists(identifier)).isTrue();
   }
 
   @Test
