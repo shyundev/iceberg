@@ -1000,6 +1000,17 @@ public class TestJdbcCatalog extends CatalogTests<JdbcCatalog> {
   }
 
   @Test
+  void createTableInNamespaceWithCustomLocation() {
+    Namespace namespace = Namespace.of("ns");
+    String namespaceLocation = tableDir.resolve("custom").toAbsolutePath().toString();
+    catalog.createNamespace(namespace, ImmutableMap.of("location", namespaceLocation + "/"));
+
+    Table table = catalog.createTable(TableIdentifier.of(namespace, "tbl"), SCHEMA);
+
+    assertThat(table.location()).isEqualTo(namespaceLocation + "/tbl");
+  }
+
+  @Test
   public void testSetProperties() {
     Namespace testNamespace = Namespace.of("testDb", "ns1", "ns2");
     Map<String, String> testMetadata =

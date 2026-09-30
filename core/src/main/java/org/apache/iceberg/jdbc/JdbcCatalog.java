@@ -294,7 +294,22 @@ public class JdbcCatalog extends BaseMetastoreViewCatalog
   @Override
   protected String defaultWarehouseLocation(TableIdentifier table) {
     String tableLocation = LocationUtil.tableLocation(table, uniqueTableLocation);
+    String namespaceLocation = namespaceLocation(table.namespace());
+    if (namespaceLocation != null) {
+      return SLASH.join(LocationUtil.stripTrailingSlash(namespaceLocation), tableLocation);
+    }
+
     return SLASH.join(defaultNamespaceLocation(table.namespace()), tableLocation);
+  }
+
+  private String namespaceLocation(Namespace namespace) {
+    try {
+      return queryProperties(namespace).get("location");
+    } catch (UncheckedSQLException e) {
+      // databases set up before namespace properties existed have no properties table
+      LOG.warn("Failed to load properties of namespace {}", namespace, e);
+      return null;
+    }
   }
 
   @Override
@@ -822,6 +837,10 @@ public class JdbcCatalog extends BaseMetastoreViewCatalog
       throw new NoSuchNamespaceException("Namespace does not exist: %s", namespace);
     }
 
+    return queryProperties(namespace);
+  }
+
+  private Map<String, String> queryProperties(Namespace namespace) {
     String namespaceName = JdbcUtil.namespaceToString(namespace);
 
     List<Map.Entry<String, String>> entries =
