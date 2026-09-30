@@ -32,6 +32,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
@@ -112,7 +113,7 @@ class JdbcTableOperations extends BaseMetastoreTableOperations {
         String oldMetadataLocation = base.metadataFileLocation();
         // Start atomic update
         LOG.debug("Committing existing table: {}", tableName());
-        updateTable(newMetadataLocation, oldMetadataLocation);
+        updateTable(newMetadataLocation, oldMetadataLocation, metadata);
       } else {
         // table not exists create it
         LOG.debug("Committing new table: {}", tableName());
@@ -143,7 +144,8 @@ class JdbcTableOperations extends BaseMetastoreTableOperations {
     }
   }
 
-  private void updateTable(String newMetadataLocation, String oldMetadataLocation)
+  private void updateTable(
+      String newMetadataLocation, String oldMetadataLocation, TableMetadata metadata)
       throws SQLException, InterruptedException {
     int updatedRecords =
         JdbcUtil.updateTable(
@@ -156,9 +158,19 @@ class JdbcTableOperations extends BaseMetastoreTableOperations {
 
     if (updatedRecords == 1) {
       LOG.debug("Successfully committed to existing table: {}", tableIdentifier);
-    } else {
-      throw new CommitFailedException(
-          "Failed to update table %s from catalog %s", tableIdentifier, catalogName);
+      return;
+    }
+
+    // the connection pool retries the update after a connection error, so an update that was
+    // applied before the error returns no updated rows
+    CommitStatus status = checkCommitStatusStrict(newMetadataLocation, metadata);
+    CommitFailedException failure =
+        new CommitFailedException(
+            "Failed to update table %s from catalog %s", tableIdentifier, catalogName);
+    if (status == CommitStatus.FAILURE) {
+      throw failure;
+    } else if (status == CommitStatus.UNKNOWN) {
+      throw new CommitStateUnknownException(failure);
     }
   }
 

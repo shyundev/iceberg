@@ -32,6 +32,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLNonTransientConnectionException;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.hadoop.conf.Configuration;
@@ -592,6 +594,102 @@ public class TestJdbcCatalog extends CatalogTests<JdbcCatalog> {
         .isInstanceOf(NoSuchTableException.class)
         .hasMessage(
             "Failed to load table db.table from catalog test_jdbc_catalog: dropped by another process");
+  }
+
+  @Test
+  void commitRetriedByConnectionPoolAfterItWasApplied() throws Exception {
+    // the pool reconnects on each failure, so this test needs a file database
+    java.nio.file.Path dbFile = Files.createTempFile("icebergLostCommitResponse", "db");
+    String jdbcUrl = "jdbc:sqlite:" + dbFile.toAbsolutePath();
+    Map<String, String> properties = Maps.newHashMap();
+    properties.put(CatalogProperties.WAREHOUSE_LOCATION, this.tableDir.toAbsolutePath().toString());
+    properties.put(CatalogProperties.URI, jdbcUrl);
+
+    AtomicBoolean loseNextUpdateResponse = new AtomicBoolean(false);
+    JdbcCatalog jdbcCatalog =
+        new JdbcCatalog(
+            null,
+            props ->
+                new JdbcClientPool(jdbcUrl, props) {
+                  @Override
+                  protected Connection newClient() {
+                    try {
+                      return loseUpdateResponse(super.newClient(), loseNextUpdateResponse);
+                    } catch (SQLException e) {
+                      throw new UncheckedSQLException(e, "Failed to wrap connection");
+                    }
+                  }
+                },
+            true);
+    jdbcCatalog.setConf(conf);
+    jdbcCatalog.initialize("test_jdbc_catalog", properties);
+
+    Table table =
+        jdbcCatalog
+            .buildTable(TableIdentifier.of("db", "tbl"), SCHEMA)
+            .withPartitionSpec(PARTITION_SPEC)
+            .create();
+    DataFile fileA =
+        DataFiles.builder(PARTITION_SPEC)
+            .withPath("/path/to/data-a.parquet")
+            .withFileSizeInBytes(10)
+            .withPartitionPath("data_bucket=0")
+            .withRecordCount(1)
+            .build();
+    DataFile fileB =
+        DataFiles.builder(PARTITION_SPEC)
+            .withPath("/path/to/data-b.parquet")
+            .withFileSizeInBytes(10)
+            .withPartitionPath("data_bucket=0")
+            .withRecordCount(1)
+            .build();
+    table.newAppend().appendFile(fileA).commit();
+    long startingSnapshotId = table.currentSnapshot().snapshotId();
+
+    loseNextUpdateResponse.set(true);
+    table
+        .newOverwrite()
+        .deleteFile(fileA)
+        .addFile(fileB)
+        .validateFromSnapshot(startingSnapshotId)
+        .validateNoConflictingData()
+        .validateNoConflictingDeletes()
+        .commit();
+
+    assertThat(loseNextUpdateResponse).isFalse();
+    table.refresh();
+    assertThat(table.newScan().planFiles())
+        .extracting(task -> task.file().location())
+        .containsExactly(fileB.location());
+  }
+
+  private static Connection loseUpdateResponse(Connection connection, AtomicBoolean loseResponse)
+      throws SQLException {
+    Connection spyConnection = Mockito.spy(connection);
+    Mockito.doAnswer(
+            invocation -> {
+              PreparedStatement statement = (PreparedStatement) invocation.callRealMethod();
+              if (!invocation.<String>getArgument(0).startsWith("UPDATE")) {
+                return statement;
+              }
+
+              PreparedStatement spyStatement = Mockito.spy(statement);
+              Mockito.doAnswer(
+                      update -> {
+                        Object updated = update.callRealMethod();
+                        if (loseResponse.compareAndSet(true, false)) {
+                          throw new SQLException("Connection lost after the update", "08006");
+                        }
+
+                        return updated;
+                      })
+                  .when(spyStatement)
+                  .executeUpdate();
+              return spyStatement;
+            })
+        .when(spyConnection)
+        .prepareStatement(any());
+    return spyConnection;
   }
 
   @Test
