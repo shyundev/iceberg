@@ -29,6 +29,7 @@ import static org.apache.iceberg.expressions.Expressions.greaterThan;
 import static org.apache.iceberg.expressions.Expressions.in;
 import static org.apache.iceberg.expressions.Expressions.isNaN;
 import static org.apache.iceberg.expressions.Expressions.lessThan;
+import static org.apache.iceberg.expressions.Expressions.lessThanOrEqual;
 import static org.apache.iceberg.expressions.Expressions.notIn;
 import static org.apache.iceberg.expressions.Expressions.notNaN;
 import static org.apache.iceberg.expressions.Expressions.or;
@@ -147,6 +148,23 @@ public class TestResiduals {
     assertThatThrownBy(() -> resEval.residualFor(Row.of(20170815)))
         .isInstanceOf(ValidationException.class)
         .hasMessageContaining("Cannot find field 'DATEINT' in struct");
+  }
+
+  @Test
+  void lessThanWithNullPartition() {
+    Schema schema = new Schema(Types.NestedField.optional(50, "dateint", Types.IntegerType.get()));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).identity("dateint").build();
+
+    assertThat(
+            ResidualEvaluator.of(spec, lessThan("dateint", 20170815), true)
+                .residualFor(Row.of((Object) null)))
+        .as("null < 20170815 => false")
+        .isEqualTo(alwaysFalse());
+    assertThat(
+            ResidualEvaluator.of(spec, lessThanOrEqual("dateint", 20170815), true)
+                .residualFor(Row.of((Object) null)))
+        .as("null <= 20170815 => false")
+        .isEqualTo(alwaysFalse());
   }
 
   @Test

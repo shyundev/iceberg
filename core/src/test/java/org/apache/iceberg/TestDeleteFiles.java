@@ -339,6 +339,47 @@ public class TestDeleteFiles extends TestBase {
   }
 
   @TestTemplate
+  void deleteByLessThanKeepsNullPartition() {
+    Schema schema = new Schema(Types.NestedField.optional(1, "x", Types.IntegerType.get()));
+    PartitionSpec spec = PartitionSpec.builderFor(schema).identity("x").build();
+    Table nullPartitionTable =
+        TestTables.create(tableDir, "nullpartition", schema, spec, formatVersion);
+
+    DataFile matchingFile =
+        DataFiles.builder(spec)
+            .withPath("/path/to/x-1.parquet")
+            .withFileSizeInBytes(10)
+            .withPartition(TestHelpers.Row.of(1))
+            .withRecordCount(1)
+            .build();
+    DataFile nullFile =
+        DataFiles.builder(spec)
+            .withPath("/path/to/x-null.parquet")
+            .withFileSizeInBytes(10)
+            .withPartition(TestHelpers.Row.of((Object) null))
+            .withRecordCount(1)
+            .build();
+
+    commit(
+        nullPartitionTable,
+        nullPartitionTable.newFastAppend().appendFile(matchingFile).appendFile(nullFile),
+        branch);
+    Snapshot delete =
+        commit(
+            nullPartitionTable,
+            nullPartitionTable.newDelete().deleteFromRowFilter(Expressions.lessThan("x", 5)),
+            branch);
+
+    assertThat(
+            SnapshotChanges.builderFor(nullPartitionTable)
+                .snapshot(delete)
+                .build()
+                .removedDataFiles())
+        .extracting(DataFile::location)
+        .containsExactly(matchingFile.location());
+  }
+
+  @TestTemplate
   public void testDeleteCaseSensitivity() {
     Snapshot append =
         commit(table, table.newFastAppend().appendFile(DATA_FILE_BUCKET_0_IDS_0_2), branch);
