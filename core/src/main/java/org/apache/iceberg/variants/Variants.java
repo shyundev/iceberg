@@ -189,14 +189,17 @@ public class Variants {
   }
 
   public static VariantPrimitive<BigDecimal> of(BigDecimal value) {
-    int precision = value.precision();
+    // the variant encoding stores the scale as an unsigned byte
+    BigDecimal decimal = value.scale() < 0 ? value.setScale(0) : value;
+    // the decimal type must also hold the scale, e.g. 0.0500000000 needs 10 digits
+    int precision = Math.max(decimal.precision(), decimal.scale());
 
     if (precision >= 1 && precision <= 9) {
-      return new PrimitiveWrapper<>(PhysicalType.DECIMAL4, value);
+      return new PrimitiveWrapper<>(PhysicalType.DECIMAL4, decimal);
     } else if (precision >= 10 && precision <= 18) {
-      return new PrimitiveWrapper<>(PhysicalType.DECIMAL8, value);
+      return new PrimitiveWrapper<>(PhysicalType.DECIMAL8, decimal);
     } else if (precision <= 38) {
-      return new PrimitiveWrapper<>(PhysicalType.DECIMAL16, value);
+      return new PrimitiveWrapper<>(PhysicalType.DECIMAL16, decimal);
     }
 
     throw new UnsupportedOperationException("Unsupported decimal precision: " + precision);

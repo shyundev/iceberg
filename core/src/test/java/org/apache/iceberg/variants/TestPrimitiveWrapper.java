@@ -29,6 +29,7 @@ import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.RandomUtil;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.FieldSource;
 
 public class TestPrimitiveWrapper {
@@ -105,5 +106,25 @@ public class TestPrimitiveWrapper {
   public void testSerialization(VariantPrimitive<?> primitive) throws Exception {
     VariantTestUtil.assertEqual(primitive, TestHelpers.roundTripSerialize(primitive));
     VariantTestUtil.assertEqual(primitive, TestHelpers.KryoHelpers.roundTripSerialize(primitive));
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "0.050000000, DECIMAL4",
+    "0.0500000000, DECIMAL8",
+    "0.000000000000000001, DECIMAL8",
+    "0.0000000000000000001, DECIMAL16",
+    "1E+3, DECIMAL4"
+  })
+  void decimalScaleFitsType(String value, PhysicalType expectedType) {
+    BigDecimal decimal = new BigDecimal(value);
+    VariantPrimitive<BigDecimal> primitive = Variants.of(decimal);
+    assertThat(primitive.type()).isEqualTo(expectedType);
+
+    ByteBuffer buffer = ByteBuffer.allocate(primitive.sizeInBytes()).order(ByteOrder.LITTLE_ENDIAN);
+    primitive.writeTo(buffer, 0);
+    VariantValue actual = Variants.value(SerializedMetadata.EMPTY_V1_METADATA, buffer);
+    assertThat(actual.type()).isEqualTo(expectedType);
+    assertThat((BigDecimal) actual.asPrimitive().get()).isEqualByComparingTo(decimal);
   }
 }
