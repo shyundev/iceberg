@@ -360,7 +360,7 @@ public class BucketFunction implements UnboundFunction {
 
     @Override
     public Integer reduce(Integer bucketNo) {
-      return bucketNo % this.commonDivisor;
+      return bucketNo == null ? null : bucketNo % this.commonDivisor;
     }
 
     @Override

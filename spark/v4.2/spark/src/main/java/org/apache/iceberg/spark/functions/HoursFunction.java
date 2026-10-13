@@ -140,7 +140,7 @@ public class HoursFunction extends UnaryUnboundFunction {
   public static class HourToDaysReducer implements Reducer<Integer, Integer>, Serializable {
     @Override
     public Integer reduce(Integer hour) {
-      return DateTimeUtil.hoursToDays(hour);
+      return hour == null ? null : DateTimeUtil.hoursToDays(hour);
     }
 
     @Override
