@@ -399,10 +399,10 @@ abstract class SnapshotProducer<ThisT> implements SnapshotUpdate<ThisT> {
     }
 
     Map<String, String> previousSummary;
-    SnapshotRef previousBranchHead = previous.ref(targetBranch);
+    Snapshot previousBranchHead = SnapshotUtil.latestSnapshot(previous, targetBranch);
     if (previousBranchHead != null) {
-      if (previous.snapshot(previousBranchHead.snapshotId()).summary() != null) {
-        previousSummary = previous.snapshot(previousBranchHead.snapshotId()).summary();
+      if (previousBranchHead.summary() != null) {
+        previousSummary = previousBranchHead.summary();
       } else {
         // previous snapshot had no summary, use an empty summary
         previousSummary = ImmutableMap.of();

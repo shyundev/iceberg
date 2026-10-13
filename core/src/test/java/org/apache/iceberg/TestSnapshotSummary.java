@@ -94,6 +94,21 @@ public class TestSnapshotSummary extends TestBase {
   }
 
   @TestTemplate
+  void totalsOfFirstCommitToNewBranch() {
+    table.newFastAppend().appendFile(FILE_A).commit();
+    table.newFastAppend().appendFile(FILE_B).toBranch("branch").commit();
+
+    assertThat(table.snapshot("branch").summary())
+        .containsEntry(SnapshotSummary.TOTAL_DATA_FILES_PROP, "2")
+        .containsEntry(
+            SnapshotSummary.TOTAL_RECORDS_PROP,
+            String.valueOf(FILE_A.recordCount() + FILE_B.recordCount()))
+        .containsEntry(
+            SnapshotSummary.TOTAL_FILE_SIZE_PROP,
+            String.valueOf(FILE_A.fileSizeInBytes() + FILE_B.fileSizeInBytes()));
+  }
+
+  @TestTemplate
   public void fastAppendWithDuplicates() {
     assertThat(listManifestFiles()).isEmpty();
 
