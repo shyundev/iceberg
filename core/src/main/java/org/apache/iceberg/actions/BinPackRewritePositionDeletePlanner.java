@@ -165,8 +165,7 @@ public class BinPackRewritePositionDeletePlanner
       Types.StructType partitionType = Partitioning.partitionType(deletesTable);
       StructLikeMap<List<PositionDeletesScanTask>> fileTasksByPartition =
           groupByPartition(partitionType, fileTasks);
-      return fileTasksByPartition.transformValues(
-          tasks -> ImmutableList.copyOf(planFileGroups(tasks)));
+      return fileTasksByPartition.transformValues(this::planFileGroupsBySpec);
     } finally {
       try {
         fileTasks.close();
@@ -174,6 +173,16 @@ public class BinPackRewritePositionDeletePlanner
         LOG.error("Cannot properly close file iterable while planning for rewrite", io);
       }
     }
+  }
+
+  // files from different specs can share a coerced partition, but a group is written with one spec
+  private List<List<PositionDeletesScanTask>> planFileGroupsBySpec(
+      List<PositionDeletesScanTask> tasks) {
+    Map<Integer, List<PositionDeletesScanTask>> tasksBySpec =
+        tasks.stream().collect(Collectors.groupingBy(task -> task.spec().specId()));
+    ImmutableList.Builder<List<PositionDeletesScanTask>> groups = ImmutableList.builder();
+    tasksBySpec.values().forEach(specTasks -> groups.addAll(planFileGroups(specTasks)));
+    return groups.build();
   }
 
   private CloseableIterable<PositionDeletesScanTask> planFiles(Table deletesTable) {

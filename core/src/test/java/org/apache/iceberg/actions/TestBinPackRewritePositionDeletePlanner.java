@@ -38,6 +38,7 @@ import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.RewriteJobOrder;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.TestBase;
+import org.apache.iceberg.TestHelpers;
 import org.apache.iceberg.TestTables;
 import org.apache.iceberg.actions.RewritePositionDeleteFiles.FileGroupInfo;
 import org.apache.iceberg.expressions.Expressions;
@@ -45,6 +46,7 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -140,6 +142,48 @@ class TestBinPackRewritePositionDeletePlanner {
 
     assertThat(plan.totalGroupCount()).isEqualTo(1);
     assertThat(plan.groups().iterator().next().inputFileNum()).isEqualTo(2);
+  }
+
+  @Test
+  void deletesFromDifferentSpecsInSamePartitionAreGroupedSeparately() {
+    table.newRowDelta().addRows(FILE_1).addDeletes(newDeleteFile(FILE_1.partition(), 10)).commit();
+
+    table.updateSchema().addColumn("category", Types.StringType.get()).commit();
+    table.updateSpec().addField("category").commit();
+    PartitionSpec evolvedSpec = table.spec();
+    StructLike nullCategory = TestHelpers.Row.of(0, null);
+    table
+        .newRowDelta()
+        .addRows(
+            DataFiles.builder(evolvedSpec)
+                .withPath("/path/to/data-" + UUID.randomUUID() + ".parquet")
+                .withFileSizeInBytes(10)
+                .withPartition(nullCategory)
+                .withRecordCount(1)
+                .build())
+        .addDeletes(
+            FileMetadata.deleteFileBuilder(evolvedSpec)
+                .ofPositionDeletes()
+                .withPath("/path/to/delete-" + UUID.randomUUID() + ".parquet")
+                .withFileSizeInBytes(10)
+                .withPartition(nullCategory)
+                .withRecordCount(1)
+                .build())
+        .commit();
+
+    BinPackRewritePositionDeletePlanner planner = new BinPackRewritePositionDeletePlanner(table);
+    planner.init(REWRITE_ALL);
+
+    List<RewritePositionDeletesGroup> groups =
+        Lists.newArrayList(planner.plan().groups().iterator());
+    assertThat(groups)
+        .extracting(
+            group ->
+                group.rewrittenDeleteFiles().stream()
+                    .map(DeleteFile::specId)
+                    .collect(Collectors.toSet()))
+        .containsExactlyInAnyOrder(
+            ImmutableSet.of(TestBase.SPEC.specId()), ImmutableSet.of(evolvedSpec.specId()));
   }
 
   @Test
