@@ -53,6 +53,21 @@ public class TestMergeOnReadUpdate extends TestUpdate {
   }
 
   @TestTemplate
+  void updateRowsInNullPartition() {
+    createAndInitTable(
+        "id INT, dep STRING",
+        "PARTITIONED BY (dep)",
+        "{ \"id\": 1, \"dep\": null }\n{ \"id\": 2, \"dep\": \"hr\" }");
+
+    sql("UPDATE %s SET id = id + 10 WHERE id IN (1, 2)", commitTarget());
+
+    assertEquals(
+        "Should update rows in all partitions",
+        ImmutableList.of(row(11, null), row(12, "hr")),
+        sql("SELECT * FROM %s ORDER BY id", selectTarget()));
+  }
+
+  @TestTemplate
   public void testUpdateFileGranularity() {
     assumeThat(formatVersion).isEqualTo(2);
     checkUpdateFileGranularity(DeleteGranularity.FILE);

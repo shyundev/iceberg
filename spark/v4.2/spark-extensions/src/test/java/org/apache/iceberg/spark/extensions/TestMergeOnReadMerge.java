@@ -54,6 +54,26 @@ public class TestMergeOnReadMerge extends TestMerge {
   }
 
   @TestTemplate
+  void mergeMatchesRowsInNullPartition() {
+    createAndInitTable(
+        "id INT, dep STRING",
+        "PARTITIONED BY (dep)",
+        "{ \"id\": 1, \"dep\": null }\n{ \"id\": 2, \"dep\": \"hr\" }");
+    createOrReplaceView("source", "{ \"id\": 1 }\n{ \"id\": 2 }");
+
+    sql(
+        "MERGE INTO %s t USING source s ON t.id = s.id "
+            + "WHEN MATCHED THEN UPDATE SET id = t.id + 10 "
+            + "WHEN NOT MATCHED THEN INSERT (id, dep) VALUES (s.id, 'new')",
+        commitTarget());
+
+    assertEquals(
+        "Should update matching rows in all partitions",
+        ImmutableList.of(row(11, null), row(12, "hr")),
+        sql("SELECT * FROM %s ORDER BY id", selectTarget()));
+  }
+
+  @TestTemplate
   public void testMergeDeleteFileGranularity() {
     assumeThat(formatVersion).isEqualTo(2);
     checkMergeDeleteGranularity(DeleteGranularity.FILE);

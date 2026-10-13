@@ -18,6 +18,7 @@
  */
 package org.apache.iceberg.spark.source;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,7 +53,9 @@ import org.apache.iceberg.spark.SparkV2Filters;
 import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.iceberg.util.DeleteFileSet;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.connector.expressions.Literal;
 import org.apache.spark.sql.connector.expressions.NamedReference;
+import org.apache.spark.sql.connector.expressions.filter.Or;
 import org.apache.spark.sql.connector.expressions.filter.PartitionPredicate;
 import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.SupportsRuntimeV2Filtering;
@@ -189,7 +192,7 @@ abstract class SparkRuntimeFilterableScan extends SparkPartitioningAwareScan<Par
     Expression filter = Expressions.alwaysTrue();
 
     for (Predicate predicate : predicates) {
-      Expression expr = SparkV2Filters.convert(predicate);
+      Expression expr = SparkV2Filters.convert(keepNullGroups(predicate));
       if (expr != null) {
         try {
           Binder.bind(projection().asStruct(), expr, caseSensitive());
@@ -203,6 +206,24 @@ abstract class SparkRuntimeFilterableScan extends SparkPartitioningAwareScan<Par
     }
 
     return filter;
+  }
+
+  // Spark also uses runtime IN filters to find groups with matching rows for row-level operations,
+  // so a null in the list must keep groups where the attribute is null
+  private static Predicate keepNullGroups(Predicate predicate) {
+    boolean hasNullValue =
+        predicate.name().equals("IN")
+            && Arrays.stream(predicate.children())
+                .skip(1)
+                .anyMatch(
+                    child -> child instanceof Literal && ((Literal<?>) child).value() == null);
+
+    if (hasNullValue) {
+      Predicate isNull = new Predicate("IS_NULL", Arrays.copyOfRange(predicate.children(), 0, 1));
+      return new Or(isNull, predicate);
+    }
+
+    return predicate;
   }
 
   protected String runtimeFiltersDesc() {
